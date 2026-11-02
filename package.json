@@ -26,7 +26,7 @@
     "doctor": "node bin/cli.mjs doctor"
   },
   "engines": {
-    "node": ">=20.9"
+    "node": ">=22"
   },
   "dependencies": {
     "better-sqlite3": "11.10.0",
