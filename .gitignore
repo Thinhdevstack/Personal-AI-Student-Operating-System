@@ -1,5 +1,7 @@
 # Local state: access token, phone PIN, replay logs, process owners, server log
 data/
+.env*
+!.env.example
 node_modules/
 # Machine-specific copy of the login service (the CLI writes its own to ~/Library/LaunchAgents)
 com.my-office.plist

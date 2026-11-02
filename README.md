@@ -24,6 +24,21 @@ open <http://localhost:4310/?demo>. Or try it online, nothing to install: <https
 
 ## Quick start
 
+### Student Workspace (Milestone 1)
+
+Open `http://localhost:4310/student` after starting the local server (`npm run dev`, or `npm run build` then `npm start`).
+The office remains at `/`; its Academic link opens the workspace. Claude Code and an OpenAI key are not needed for
+creating semesters, courses or uploading PDFs.
+
+- Create a semester and course, open Materials, and add a PDF (maximum 20 MiB).
+- SQLite metadata and original files persist under `data/student/`, or `OFFICE_DATA_DIR/student/` when configured.
+- Rename, choose the current semester, or archive semesters/courses. Archive preserves files; only empty courses can be deleted.
+- Files are marked **Uploaded**. Extraction/retrieval, OpenAI Tutor and memory are later milestones; the Chat and Progress tabs explain their status.
+- The GitHub Pages demo remains static. It cannot persist academic records or accept uploads.
+- To back up, stop the server and copy the entire `data/student/` directory. Restore that directory with the server stopped.
+
+The [repository analysis and implementation plan](docs/STUDENT-OS-PLAN.md) explains the architecture, planned files and subsequent milestones.
+
 You need Node.js 20.9 or newer and Claude Code, on macOS, Linux or Windows. The machine panel (RAM, CPU, disk, dev
 servers, cleanup) reads each system its own way; opening a session's IDE window and quitting apps are macOS only.
 

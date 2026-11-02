@@ -1,0 +1,17 @@
+export default {
+  title: 'Không gian học tập', subtitle: 'Tập trung môn học và tài liệu của bạn.', office: 'My Office', today: 'Hôm nay', academic: 'Học tập', projects: 'Dự án trong My Office',
+  activeSemester: 'Học kỳ hiện hành', semester: 'Học kỳ', archived: 'Đã lưu trữ', showArchived: 'Hiện học kỳ và môn đã lưu trữ', noSemester: 'Tạo học kỳ đầu tiên để bắt đầu.',
+  createSemester: 'Tạo học kỳ', createCourse: 'Tạo môn học', courses: 'Môn học', emptyCourses: 'Chưa có môn học.', selectCourse: 'Chọn môn để mở không gian học tập.',
+  name: 'Tên', academicYear: 'Năm học', startDate: 'Ngày bắt đầu', endDate: 'Ngày kết thúc', code: 'Mã môn', description: 'Mô tả',
+  rename: 'Đổi tên', archive: 'Lưu trữ', activate: 'Đặt làm hiện hành', current: 'Hiện hành', delete: 'Xóa môn chưa có dữ liệu', save: 'Lưu', cancel: 'Hủy', confirm: 'Xác nhận',
+  archiveConfirm: 'Lưu trữ mục này? Tài liệu và lịch sử được giữ lại. Lưu trữ học kỳ sẽ lưu trữ cả các môn thuộc học kỳ.', deleteConfirm: 'Xóa môn trống này? Không thể xóa môn đang có tài liệu.',
+  overview: 'Tổng quan', materials: 'Tài liệu', chat: 'Trò chuyện', progress: 'Tiến độ', upload: 'Thêm PDF', download: 'Tải xuống',
+  emptyMaterials: 'Thêm PDF bài giảng hoặc giáo trình đầu tiên.', pdfHint: 'Chỉ PDF · Tối đa 20 MiB mỗi file. File được lưu trên máy này.',
+  uploadedHint: 'Đã lưu trên máy. Trích xuất văn bản và tìm kiếm sẽ được thêm ở Milestone 2.', archivedHint: 'Không gian đã lưu trữ. Bạn vẫn có thể tải tài liệu xuống.',
+  chatPending: 'AI Tutor được thêm ở Milestone 3, dùng OpenAI và tài liệu của môn này.', progressPending: 'Tiến độ sẽ hiển thị khi có dữ liệu học tập làm bằng chứng.',
+  recentMaterials: 'Tài liệu gần đây', noRecent: 'Học kỳ hiện hành chưa có tài liệu.', todayHint: 'Bắt đầu với học kỳ, thêm môn học, rồi tải tài liệu của bạn lên.',
+  loading: 'Đang tải…', working: 'Đang lưu…', success: 'Đã lưu.', retry: 'Tải lại', noActive: 'Chưa có học kỳ hiện hành. Chọn trong phần Học tập.',
+  staticOnly: 'Không gian học tập cần server My Office trên máy. Bản demo trực tuyến không lưu môn học hoặc PDF.',
+  status: { active: 'Đang học', archived: 'Đã lưu trữ', uploaded: 'Đã tải lên', processing: 'Đang xử lý', ready: 'Sẵn sàng', failed: 'Lỗi' },
+  errors: { invalidInput: 'Kiểm tra các trường bắt buộc và độ dài nội dung.', invalidDate: 'Nhập ngày hợp lệ, ngày kết thúc không trước ngày bắt đầu.', notFound: 'Mục này không còn tồn tại. Tải lại và thử lại.', archived: 'Học kỳ hoặc môn này đã được lưu trữ.', courseNotEmpty: 'Môn đang có tài liệu. Hãy lưu trữ để giữ dữ liệu.', invalidFile: 'Chọn PDF có phần đầu và kết thúc đúng định dạng.', fileTooLarge: 'File trống hoặc vượt giới hạn 20 MiB.', uploadInterrupted: 'Upload bị gián đoạn. Hãy thử lại.', unauthorized: 'Đăng nhập My Office bằng PIN trước.', forbidden: 'Yêu cầu này không được phép.', busy: 'Đang có hai lượt tải lên. Vui lòng thử lại sau.', fileMissing: 'Không tìm thấy file trong bộ nhớ.', serverError: 'Không thể hoàn tất. Kiểm tra server và thử lại.', network: 'Không kết nối được My Office. Kiểm tra server và tải lại.' },
+};

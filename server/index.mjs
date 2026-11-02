@@ -48,6 +48,8 @@ import { createOtel } from './otel.mjs';
 import { managedEnvs, otelOwner } from './otel-setup.mjs';
 import { pickLang, createT } from '../src/i18n/index.js';
 import { createLiftService } from './lift-service.mjs';
+import { createStudentService } from './student/service.mjs';
+import { createStudentRoutes } from './student/routes.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const PORT = Number(process.env.OFFICE_PORT) || 4310;
@@ -2417,6 +2419,10 @@ async function openFolder(dir) {
   return app ? done('open', ['-a', app, dir], path.basename(app, '.app')) : done('open', [dir], 'Finder');
 }
 
+const student = createStudentService(path.join(DATA_DIR, 'student'));
+process.once('exit', () => student.close());
+const studentRoutes = createStudentRoutes({ service: student, authorized, sameOrigin: sameOriginOf });
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
   if (req.method === 'POST' && url.pathname === '/event') {
@@ -2509,6 +2515,7 @@ const server = http.createServer((req, res) => {
   // answers to approvals (when the Mac allows them), the page's presence, the chat and work (when the Mac allows it; the
   // prompt helper's rewrite too). Everything else that changes something stays on the Mac and the home network.
   if (req.viaTunnel && req.method !== 'GET' && req.method !== 'HEAD' && !['/pin', '/api/pin', '/api/perm', '/api/presence', '/api/chat', '/api/tasks', '/api/tasks/stop', '/api/tasks/steer', '/api/prompt/rewrite', '/api/push', '/api/quick', '/api/loop', '/api/ci', '/api/pins', '/api/denied', '/api/undo'].includes(url.pathname)) { json(res, 403, { ok: false, message: tr('server.api.approveOnMac') }); return; }
+  if (url.pathname.startsWith('/api/student/')) { void studentRoutes(req, res, url); return; }
   if (url.pathname === '/pin' && (req.method === 'GET' || req.method === 'POST')) {
     const ip = clientIp(req);
     if (isLoopback(req) || cookieOk(req)) { res.writeHead(303, { Location: '/' }).end(); return; }
@@ -2954,7 +2961,7 @@ const server = http.createServer((req, res) => {
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405).end(); return; }
   if (url.pathname === '/health') { res.writeHead(200, { 'Content-Type': 'text/plain' }).end('ok'); return; }
   if (!authorized(req, url)) {
-    if (url.pathname === '/' || url.pathname === '/index.html') res.writeHead(303, { Location: '/pin' }).end();
+    if (['/', '/index.html', '/student', '/student/'].includes(url.pathname)) res.writeHead(303, { Location: '/pin' }).end();
     else json(res, 401, { ok: false, message: tr('server.pin.needed') });
     return;
   }
@@ -3054,8 +3061,8 @@ const server = http.createServer((req, res) => {
     sysSnapshot({ open: url.searchParams.has('open') }).then((snap) => json(res, 200, { ...snap, claude: claudeRows(snap.claude), auto: { hours: prefs.autoClose(), last: autoLast[0] || null } })).catch((err) => json(res, 500, { error: String(err.message || err) }));
     return;
   }
-  if (url.pathname === '/' || url.pathname === '/index.html') {
-    // the office page itself is rendered by Next.js (app/page.tsx); our headers go on before it starts the response
+  if (['/', '/index.html', '/student', '/student/'].includes(url.pathname)) {
+    // Office and Student pages are rendered by Next.js; auth/language headers precede the response.
     res.setHeader('Referrer-Policy', 'no-referrer');
     // a phone in by a token link gets a cookie; a remembered one, renewed once a month, so it stays while it's used
     const ck = isLoopback(req) ? null : pinCookieOf(req);

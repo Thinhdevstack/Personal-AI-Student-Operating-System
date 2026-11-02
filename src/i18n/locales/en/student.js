@@ -1,0 +1,17 @@
+export default {
+  title: 'Student Workspace', subtitle: 'Your courses, together in one place.', office: 'My Office', today: 'Today', academic: 'Academic', projects: 'Projects in My Office',
+  activeSemester: 'Current semester', semester: 'Semester', archived: 'Archived', showArchived: 'Show archived semesters and courses', noSemester: 'Create your first semester to get started.',
+  createSemester: 'Create semester', createCourse: 'Create course', courses: 'Courses', emptyCourses: 'No courses here yet.', selectCourse: 'Select a course to open its workspace.',
+  name: 'Name', academicYear: 'Academic year', startDate: 'Start date', endDate: 'End date', code: 'Course code', description: 'Description',
+  rename: 'Rename', archive: 'Archive', activate: 'Set as current', current: 'Current', delete: 'Delete empty course', save: 'Save', cancel: 'Cancel', confirm: 'Confirm',
+  archiveConfirm: 'Archive this item? Materials and history will be kept. Archiving a semester also archives its courses.', deleteConfirm: 'Delete this empty course? Courses with materials cannot be deleted.',
+  overview: 'Overview', materials: 'Materials', chat: 'Chat', progress: 'Progress', upload: 'Add PDF', download: 'Download',
+  emptyMaterials: 'Add your first lecture or textbook PDF.', pdfHint: 'PDF only · Up to 20 MiB per file. Files stay on this computer.',
+  uploadedHint: 'Saved locally. Text extraction and search will be added in Milestone 2.', archivedHint: 'Archived workspace. Your materials remain available to download.',
+  chatPending: 'Course Tutor arrives in Milestone 3, using OpenAI and this course’s materials.', progressPending: 'Learning progress will appear when study evidence is available.',
+  recentMaterials: 'Recent materials', noRecent: 'No materials in the current semester yet.', todayHint: 'Start with a semester, add a course, then bring in your study materials.',
+  loading: 'Loading…', working: 'Saving…', success: 'Saved.', retry: 'Reload', noActive: 'No current semester. Choose one in Academic.',
+  staticOnly: 'Student Workspace requires the local My Office server. The online demo does not store courses or PDFs.',
+  status: { active: 'Active', archived: 'Archived', uploaded: 'Uploaded', processing: 'Processing', ready: 'Ready', failed: 'Failed' },
+  errors: { invalidInput: 'Check the required fields and their lengths.', invalidDate: 'Enter valid dates, with the end on or after the start.', notFound: 'This item no longer exists. Reload and try again.', archived: 'This semester or course is archived.', courseNotEmpty: 'This course contains materials. Archive it to keep your data.', invalidFile: 'Choose a PDF with a valid PDF header and ending.', fileTooLarge: 'The file is empty or exceeds the 20 MiB limit.', uploadInterrupted: 'Upload interrupted. Please retry.', unauthorized: 'Sign in to My Office with your PIN first.', forbidden: 'This request is not allowed.', busy: 'Two uploads are already running. Please try again shortly.', fileMissing: 'The saved file is missing from storage.', serverError: 'Could not complete the request. Check the server and try again.', network: 'Cannot reach My Office. Check the server and reload.' },
+};

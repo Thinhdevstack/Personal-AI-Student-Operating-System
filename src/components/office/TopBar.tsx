@@ -13,6 +13,7 @@ export default async function TopBar() {
         <button type="button" data-view="2d" aria-pressed="false" title={t('ui.topBar.view2d')}>2D</button>
       </div>
       <div className="tb-actions">
+        {process.env.OFFICE_STATIC !== '1' && <a className="tb-btn" href={`/student?lang=${t.lang}`}>{t('student.academic')}</a>}
         <div className="pop-wrap">
           <button id="btn-plan" className="tb-btn mac-pill plan-pill" type="button" data-level="normal" aria-expanded="false" aria-controls="pop-plan" hidden><i className="lvl"></i><span className="mp-label">{t('ui.topBar.plan')}</span><span className="mp-val" id="plan-mini">{t('ui.topBar.reading')}</span><span className="mp-bar"><b id="plan-bar"></b></span></button>
           <div className="pop pop-plan" id="pop-plan" hidden role="dialog" aria-label={t('ui.topBar.planLimits')}>
