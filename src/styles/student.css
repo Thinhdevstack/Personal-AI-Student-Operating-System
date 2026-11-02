@@ -83,3 +83,16 @@
   .student-materials li { flex-wrap: wrap; gap: 10px; }
   .student-dates { grid-template-columns: 1fr; gap: 0; }
 }
+.student-status-badge { font-weight: 600; }
+.student-status-ready { color: var(--green-ink); }
+.student-status-failed { color: var(--red); }
+.student-status-processing { color: var(--accent-hi); }
+.student-search-panel { margin-top: 32px; border-top: 1px solid var(--line); padding-top: 24px; }
+.student-search-form { display: flex; gap: 8px; margin-top: 12px; }
+.student-search-form input { flex: 1; padding: 10px 14px; border: 1px solid var(--line-2); border-radius: 8px; background: var(--bg); color: var(--ink); }
+.student-search-results { margin-top: 20px; list-style: none; padding: 0; }
+.student-search-results li { padding: 14px; border: 1px solid var(--line-2); border-radius: 8px; margin-bottom: 10px; background: var(--card); }
+.student-search-snippet { font-size: 13px; color: var(--ink); margin-top: 6px; white-space: pre-wrap; font-family: var(--mono); }
+.student-material-actions { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.student-material-actions button { font-size: 11px; padding: 4px 8px; }
+

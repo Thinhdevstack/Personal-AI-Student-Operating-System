@@ -62,6 +62,38 @@ export function createStudentRoutes({ service, authorized, sameOrigin }) {
           } finally { uploads--; }
         }
       }
+      if (parts.length === 3 && kind === 'courses' && child === 'search') {
+        let query, limit, includeArchived;
+        if (req.method === 'POST') {
+          const body = await readObject(req);
+          query = body.query;
+          limit = body.limit;
+          includeArchived = Boolean(body.includeArchived);
+        } else if (req.method === 'GET') {
+          query = url.searchParams.get('query') || url.searchParams.get('q');
+          limit = url.searchParams.get('limit');
+          includeArchived = url.searchParams.get('includeArchived') === 'true';
+        } else {
+          throw new StudentError('notFound', 404);
+        }
+        const results = await service.search(id, query, limit, includeArchived);
+        return send(res, 200, results);
+      }
+      if (parts.length === 3 && kind === 'documents' && child === 'process' && req.method === 'POST') {
+        const sync = url.searchParams.get('sync') === 'true';
+        if (sync) {
+          const doc = await service.processDocument(id);
+          return send(res, 200, { ok: true, document: doc });
+        }
+        // Async processing
+        void service.processDocument(id).catch((err) => {
+          console.error(`Document ${id} processing failed:`, err);
+        });
+        return send(res, 202, { id, status: 'processing' });
+      }
+      if (parts.length === 3 && kind === 'documents' && child === 'chunks' && req.method === 'GET') {
+        return send(res, 200, { chunks: service.documentChunks(id) });
+      }
       if (parts.length === 3 && kind === 'documents' && child === 'file' && ['GET', 'HEAD'].includes(req.method)) {
         const file = service.file(id);
         // Open before sending headers so missing storage gets a meaningful HTTP error.

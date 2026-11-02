@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { createT } from '@/i18n/index.js';
-import type { AcademicSnapshot, Course, Material, Semester } from './types';
+import type { AcademicSnapshot, Course, Material, SearchResult, Semester } from './types';
 import * as api from './api';
 
 type Tab = 'overview' | 'materials' | 'chat' | 'progress';
@@ -26,6 +26,9 @@ export default function StudentWorkspace({ lang }: { lang: string }) {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [officeHref, setOfficeHref] = useState('/');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
+  const [searching, setSearching] = useState(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   // Native modal dialogs provide keyboard focus containment and restore focus on close.
@@ -62,6 +65,16 @@ export default function StudentWorkspace({ lang }: { lang: string }) {
     return () => controller.abort();
   }, [courseId, revision]);
 
+  // Auto-refresh when any document is in processing state
+  useEffect(() => {
+    const hasProcessing = library?.items.some((m) => m.status === 'processing');
+    if (!hasProcessing) return;
+    const timer = setTimeout(() => {
+      setRevision((r) => r + 1);
+    }, 2000);
+    return () => clearTimeout(timer);
+  }, [library?.items]);
+
   const semester = data?.semesters.find((s) => s.id === semesterId);
   const course = data?.courses.find((c) => c.id === courseId);
   const current = data?.semesters.find((s) => s.isActive);
@@ -70,10 +83,12 @@ export default function StudentWorkspace({ lang }: { lang: string }) {
 
   function chooseCourse(item: Course) {
     setSemesterId(item.semesterId); setCourseId(item.id); setView('academic'); setTab('overview'); setError(''); setNotice('');
+    setSearchQuery(''); setSearchResults(null);
     const url = new URL(window.location.href); url.searchParams.set('course', item.id); window.history.replaceState(null, '', url);
   }
   function chooseSemester(id: string) {
     setSemesterId(id); setCourseId(''); setView('academic');
+    setSearchQuery(''); setSearchResults(null);
     const url = new URL(window.location.href); url.searchParams.delete('course'); window.history.replaceState(null, '', url);
   }
   async function run(action: () => Promise<void>) {
@@ -117,8 +132,31 @@ export default function StudentWorkspace({ lang }: { lang: string }) {
   function materialList(items: Material[]) {
     return <ul className="student-materials">{items.map((item) => <li key={item.id}>
       <span className="student-file-icon" aria-hidden="true">PDF</span>
-      <div><strong>{item.originalFilename}</strong><small>{(item.sizeBytes / 1024).toFixed(1)} KiB · {new Date(item.uploadedAt).toLocaleDateString(lang)} · {t(`status.${item.status}`)}</small></div>
-      <a href={api.apiUrl(`documents/${item.id}/file`)}>{t('download')}</a>
+      <div>
+        <strong>{item.originalFilename}</strong>
+        <small>
+          {(item.sizeBytes / 1024).toFixed(1)} KiB · {new Date(item.uploadedAt).toLocaleDateString(lang)} ·{' '}
+          <span className={`student-status-badge student-status-${item.status}`}>
+            {t(`status.${item.status}`)}
+          </span>
+          {item.status === 'ready' && item.pageCount && ` · ${item.pageCount} ${t('pages')}`}
+          {item.status === 'ready' && typeof item.chunkCount === 'number' && ` · ${item.chunkCount} ${t('chunks')}`}
+          {item.status === 'failed' && item.processingError && ` (${t(`errors.${item.processingError}`) || item.processingError})`}
+        </small>
+      </div>
+      <div className="student-material-actions">
+        {item.status === 'uploaded' && course?.status === 'active' && (
+          <button disabled={busy} onClick={() => void run(async () => { await api.processDocument(item.id); })}>
+            {t('process')}
+          </button>
+        )}
+        {item.status === 'failed' && course?.status === 'active' && (
+          <button disabled={busy} onClick={() => void run(async () => { await api.processDocument(item.id); })}>
+            {t('processRetry')}
+          </button>
+        )}
+        <a href={api.apiUrl(`documents/${item.id}/file`)}>{t('download')}</a>
+      </div>
     </li>)}</ul>;
   }
   return <div className="student-shell">
@@ -174,10 +212,60 @@ export default function StudentWorkspace({ lang }: { lang: string }) {
               if (!/\.pdf$/i.test(file.name)) { setError('invalidFile'); return; }
               if (!file.size || file.size > MAX_PDF_BYTES) { setError('fileTooLarge'); return; }
               const target = course.id;
-              void run(async () => { await api.upload(target, file); });
+              void run(async () => {
+                const uploaded = await api.upload(target, file);
+                // Trigger processing in background
+                void api.processDocument(uploaded.id).then(() => setRevision((r) => r + 1)).catch(() => setRevision((r) => r + 1));
+              });
             }} /></label>}</div><p>{t('pdfHint')}</p>
               {courseMaterials === null ? <p>{t('loading')}</p> : courseMaterials.length ? materialList(courseMaterials) : <div className="student-empty">{t('emptyMaterials')}</div>}
               <p className="student-footnote">{t('uploadedHint')}</p>
+
+              {/* Course-scoped search testing UI */}
+              <div className="student-search-panel">
+                <h3>{t('searchMaterials')}</h3>
+                <form className="student-search-form" onSubmit={async (e) => {
+                  e.preventDefault();
+                  if (!searchQuery.trim() || searching) return;
+                  setSearching(true);
+                  setError('');
+                  try {
+                    const res = await api.searchCourse(course.id, searchQuery);
+                    setSearchResults(res.results);
+                  } catch (err) {
+                    setError(err instanceof api.AcademicApiError ? err.message : 'network');
+                  } finally {
+                    setSearching(false);
+                  }
+                }}>
+                  <input
+                    type="text"
+                    placeholder={t('searchPlaceholder')}
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                  />
+                  <button type="submit" disabled={searching || !searchQuery.trim()}>
+                    {searching ? t('searching') : t('searchButton')}
+                  </button>
+                </form>
+                {searchResults !== null && (
+                  <div style={{ marginTop: '16px' }}>
+                    <h4>{t('searchResults')}</h4>
+                    {searchResults.length === 0 ? (
+                      <p>{t('noResults')}</p>
+                    ) : (
+                      <ul className="student-search-results">
+                        {searchResults.map((r, i) => (
+                          <li key={i}>
+                            <strong>{r.documentName}</strong> — {t('page')} {r.pageNumber} <small>({t('score')}: {r.score})</small>
+                            <div className="student-search-snippet">{r.content}</div>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                )}
+              </div>
             </>}
             {tab === 'chat' && <p>{t('chatPending')}</p>}
             {tab === 'progress' && <p>{t('progressPending')}</p>}

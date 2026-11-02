@@ -9,7 +9,10 @@ export function openStudentDatabase(dir) {
     db.pragma('foreign_keys = ON');
     db.pragma('journal_mode = WAL');
     db.exec('CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY, appliedAt TEXT NOT NULL)');
-    const migrations = [new URL('./migrations/001-academic.sql', import.meta.url)];
+    const migrations = [
+      new URL('./migrations/001-academic.sql', import.meta.url),
+      new URL('./migrations/002-chunks.sql', import.meta.url),
+    ];
     db.transaction(() => {
       for (const [index, file] of migrations.entries()) {
         const version = index + 1;
