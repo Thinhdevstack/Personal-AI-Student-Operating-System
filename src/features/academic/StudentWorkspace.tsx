@@ -5,6 +5,7 @@ import type { FormEvent } from 'react';
 import { createT } from '@/i18n/index.js';
 import type { AcademicSnapshot, Course, Material, SearchResult, Semester } from './types';
 import * as api from './api';
+import CourseChat from '@/features/ai/CourseChat';
 
 type Tab = 'overview' | 'materials' | 'chat' | 'progress';
 type Editor = { kind: 'semester' | 'course'; action: 'create' | 'rename' | 'archive' | 'delete'; id?: string; name?: string };
@@ -46,7 +47,7 @@ export default function StudentWorkspace({ lang }: { lang: string }) {
       const selected = result.courses.find((c) => c.id === params.get('course'));
       setSemesterId(selected?.semesterId || result.semesters.find((s) => s.isActive)?.id || result.semesters.find((s) => s.status === 'active')?.id || '');
       if (selected) {
-        setCourseId(selected.id); setView('academic'); setTab('materials');
+        setCourseId(selected.id); setView('academic'); setTab(params.get('tab') === 'chat' ? 'chat' : 'materials');
         setShowArchived(selected.status === 'archived');
       }
       const officeParams = new URLSearchParams();
@@ -80,6 +81,11 @@ export default function StudentWorkspace({ lang }: { lang: string }) {
   const current = data?.semesters.find((s) => s.isActive);
   const courses = data?.courses.filter((c) => c.semesterId === semesterId && (showArchived || c.status === 'active')) || [];
   const courseMaterials = library?.courseId === courseId ? library.items : null;
+
+  function chooseTab(value: Tab) {
+    setTab(value);
+    const url = new URL(window.location.href); url.searchParams.set('tab', value); window.history.replaceState(null, '', url);
+  }
 
   function chooseCourse(item: Course) {
     setSemesterId(item.semesterId); setCourseId(item.id); setView('academic'); setTab('overview'); setError(''); setNotice('');
@@ -155,6 +161,7 @@ export default function StudentWorkspace({ lang }: { lang: string }) {
             {t('processRetry')}
           </button>
         )}
+        {item.status === 'ready' && course?.status === 'active' && <button disabled={busy} onClick={() => void run(async () => { await api.processDocument(item.id); })}>{t('reprocess')}</button>}
         <a href={api.apiUrl(`documents/${item.id}/file`)}>{t('download')}</a>
       </div>
     </li>)}</ul>;
@@ -202,7 +209,7 @@ export default function StudentWorkspace({ lang }: { lang: string }) {
         </> : <>
           <button className="student-breadcrumb" onClick={() => chooseSemester(semester.id)}>← {semester.name}</button>
           {actions('course', course)}
-          <div className="student-tabs" role="group" aria-label={course.name}>{(['overview', 'materials', 'chat', 'progress'] as Tab[]).map((item) => <button key={item} aria-pressed={tab === item} onClick={() => setTab(item)}>{t(item)}</button>)}</div>
+          <div className="student-tabs" role="group" aria-label={course.name}>{(['overview', 'materials', 'chat', 'progress'] as Tab[]).map((item) => <button key={item} aria-pressed={tab === item} onClick={() => chooseTab(item)}>{t(item)}</button>)}</div>
           <section className="student-panel">
             {course.status === 'archived' && <p className="student-archive-note">{t('archivedHint')}</p>}
             {tab === 'overview' && <><h2>{course.name}</h2><p>{course.description || t('selectCourse')}</p><p>{t('semester')}: {semester.name} · {semester.academicYear}</p><p>{t(`status.${course.status}`)}</p><button onClick={() => setTab('materials')}>{t('materials')} →</button></>}
@@ -267,7 +274,7 @@ export default function StudentWorkspace({ lang }: { lang: string }) {
                 )}
               </div>
             </>}
-            {tab === 'chat' && <p>{t('chatPending')}</p>}
+            {tab === 'chat' && <CourseChat key={course.id} courseId={course.id} lang={lang} hasReadyMaterials={!!courseMaterials?.some((item) => item.status === 'ready')} />}
             {tab === 'progress' && <p>{t('progressPending')}</p>}
           </section>
         </>}

@@ -3,6 +3,7 @@
 // Claude Code hooks POST every event to /event (loopback only). The server keeps one record per
 // open session (names come from ~/.claude/sessions/<pid>.json), strips anything that looks like a
 // secret, and streams compact events to the office page over Server-Sent Events.
+import './env.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import fsp from 'node:fs/promises';

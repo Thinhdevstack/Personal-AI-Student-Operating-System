@@ -1,110 +1,32 @@
 import { StudentError } from '../student/storage.mjs';
 
-/**
- * Compute cosine similarity between two Float32 / number vectors.
- *
- * @param {ArrayLike<number>} a
- * @param {ArrayLike<number>} b
- * @returns {number}
- */
 export function cosineSimilarity(a, b) {
   if (a.length !== b.length) return 0;
-  let dot = 0;
-  let normA = 0;
-  let normB = 0;
-  for (let i = 0; i < a.length; i++) {
-    const valA = a[i];
-    const valB = b[i];
-    dot += valA * valB;
-    normA += valA * valA;
-    normB += valB * valB;
-  }
-  const denom = Math.sqrt(normA) * Math.sqrt(normB);
-  if (denom === 0) return 0;
-  return dot / denom;
+  let dot = 0, normA = 0, normB = 0;
+  for (let i = 0; i < a.length; i++) { dot += a[i] * b[i]; normA += a[i] ** 2; normB += b[i] ** 2; }
+  const norm = Math.sqrt(normA * normB);
+  return norm ? dot / norm : 0;
 }
 
-/**
- * Perform a course-scoped semantic retrieval search over indexed chunks.
- *
- * @param {object} params
- * @param {import('better-sqlite3').Database} params.db
- * @param {string} params.courseId
- * @param {string} params.query
- * @param {number} [params.limit=5]
- * @param {object} params.aiProvider
- * @param {boolean} [params.includeArchived=false]
- * @returns {Promise<{ results: { documentId: string; documentName: string; pageNumber: number; chunkIndex: number; content: string; score: number }[] }>}
- */
-export async function searchCourseMaterials({ db, courseId, query, limit = 5, aiProvider, includeArchived = false }) {
-  if (!query || typeof query !== 'string' || !query.trim()) {
-    throw new StudentError('invalidInput', 400);
-  }
-  const cleanQuery = query.trim().slice(0, 1000);
-  const maxResults = Math.min(Math.max(1, Number(limit) || 5), 50);
-
-  // Validate course exists
-  const course = db.prepare('SELECT id, status FROM courses WHERE id = ?').get(courseId);
-  if (!course) {
-    throw new StudentError('notFound', 404);
-  }
-
-  // If course is archived, check if archived course search is allowed
-  // By specification: "nếu request explicitly chỉ định course archived thì vẫn search được"
-  // Here courseId is explicitly specified in the course-scoped search.
-  // But if includeArchived is explicitly false and course is archived:
-  if (course.status === 'archived' && includeArchived === false && !courseId) {
-    return { results: [] };
-  }
-
-  // Generate embedding for query
-  const [queryVec] = await aiProvider.embed([cleanQuery]);
-  if (!queryVec || queryVec.length === 0) {
-    return { results: [] };
-  }
-
-  // Query only ready documents belonging strictly to this course
-  const rows = db.prepare(`
-    SELECT
-      c.id AS chunkId,
-      c.documentId,
-      c.pageNumber,
-      c.chunkIndex,
-      c.content,
-      d.originalFilename AS documentName,
-      e.embedding,
-      e.model,
-      e.dimensions
-    FROM document_chunks c
-    JOIN chunk_embeddings e ON e.chunkId = c.id
-    JOIN documents d ON d.id = c.documentId
-    WHERE c.courseId = ? AND d.status = 'ready'
-  `).all(courseId);
-
-  if (!rows || rows.length === 0) {
-    return { results: [] };
-  }
-
-  const scored = [];
-  for (const row of rows) {
-    const rawBuffer = row.embedding;
-    const chunkVec = new Float32Array(rawBuffer.buffer, rawBuffer.byteOffset, rawBuffer.byteLength / 4);
-    if (chunkVec.length !== queryVec.length) continue; // Skip mismatching dimension
-
-    const score = cosineSimilarity(queryVec, chunkVec);
-    scored.push({
-      documentId: row.documentId,
-      documentName: row.documentName,
-      pageNumber: row.pageNumber,
-      chunkIndex: row.chunkIndex,
-      content: row.content,
-      score: Math.round(score * 10000) / 10000,
-    });
-  }
-
-  // Sort descending by score
-  scored.sort((a, b) => b.score - a.score);
-
-  return { results: scored.slice(0, maxResults) };
+export async function searchCourseMaterials({ db, courseId, query, limit = 5, aiProvider, includeArchived = false, minScore = -1 }) {
+  if (typeof query !== 'string' || !query.trim() || query.length > 4000) throw new StudentError('invalidInput');
+  const course = db.prepare('SELECT c.status, s.status AS semesterStatus FROM courses c JOIN semesters s ON s.id=c.semesterId WHERE c.id=?').get(courseId);
+  if (!course) throw new StudentError('notFound', 404);
+  if ((course.status === 'archived' || course.semesterStatus === 'archived') && !includeArchived) throw new StudentError('archived', 409);
+  const rows = db.prepare('SELECT c.id AS chunkId, c.documentId, c.pageNumber, c.chunkIndex, c.content, d.originalFilename AS documentName, e.embedding, e.model, e.dimensions, e.modelVersion FROM document_chunks c JOIN chunk_embeddings e ON e.chunkId=c.id JOIN documents d ON d.id=c.documentId WHERE c.courseId=? AND d.courseId=? AND d.status=?').all(courseId, courseId, 'ready');
+  if (!rows.length) return { results: [] };
+  const compatible = rows.filter((row) => row.model === aiProvider.model && row.dimensions === aiProvider.dimensions && row.modelVersion === (aiProvider.version || '') && row.embedding.length === row.dimensions * 4);
+  if (!compatible.length) throw new StudentError('aiIndexMismatch', 409);
+  const [queryVec] = await aiProvider.embed([query.trim()]);
+  if (!queryVec || queryVec.length !== aiProvider.dimensions || !queryVec.every(Number.isFinite)) throw new StudentError('aiEmbeddingMismatch', 502);
+  const scored = compatible.map((row) => {
+    // SQLite buffers can have unaligned byte offsets; DataView works for every buffer.
+    const view = new DataView(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength);
+    const vector = Array.from({ length: row.dimensions }, (_, i) => view.getFloat32(i * 4, true));
+    const score = cosineSimilarity(queryVec, vector);
+    return { chunkId: row.chunkId, documentId: row.documentId, documentName: row.documentName, pageNumber: row.pageNumber, chunkIndex: row.chunkIndex, content: row.content, score: Math.round(score * 10000) / 10000 };
+  }).filter((row) => Number.isFinite(row.score) && row.score >= minScore);
+  scored.sort((a, b) => b.score - a.score || a.chunkId.localeCompare(b.chunkId));
+  return { results: scored.slice(0, Math.min(50, Math.max(1, Math.floor(Number(limit) || 5)))) };
 }
 

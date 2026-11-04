@@ -12,6 +12,7 @@ export function openStudentDatabase(dir) {
     const migrations = [
       new URL('./migrations/001-academic.sql', import.meta.url),
       new URL('./migrations/002-chunks.sql', import.meta.url),
+      new URL('./migrations/003-chat.sql', import.meta.url),
     ];
     db.transaction(() => {
       for (const [index, file] of migrations.entries()) {

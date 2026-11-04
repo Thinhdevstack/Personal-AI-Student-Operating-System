@@ -24,7 +24,7 @@ open <http://localhost:4310/?demo>. Or try it online, nothing to install: <https
 
 ## Quick start
 
-### Student Workspace (Milestone 1)
+### Student Workspace and Course Tutor (Milestone 3)
 
 Open `http://localhost:4310/student` after starting the local server (`npm run dev`, or `npm run build` then `npm start`).
 The office remains at `/`; its Academic link opens the workspace. Claude Code and an OpenAI key are not needed for
@@ -33,13 +33,24 @@ creating semesters, courses or uploading PDFs.
 - Create a semester and course, open Materials, and add a PDF (maximum 20 MiB).
 - SQLite metadata and original files persist under `data/student/`, or `OFFICE_DATA_DIR/student/` when configured.
 - Rename, choose the current semester, or archive semesters/courses. Archive preserves files; only empty courses can be deleted.
-- Files are marked **Uploaded**. Extraction/retrieval, OpenAI Tutor and memory are later milestones; the Chat and Progress tabs explain their status.
+- Process PDFs in Materials to extract page-aware chunks and index embeddings. Ready PDFs can be reprocessed after changing the embedding configuration.
+- Open Chat to ask about the current course. Answers include verified document/page sources; conversations survive refresh and archive. Courses with materials or chat history cannot be deleted.
 - The GitHub Pages demo remains static. It cannot persist academic records or accept uploads.
 - To back up, stop the server and copy the entire `data/student/` directory. Restore that directory with the server stopped.
 
 The [repository analysis and implementation plan](docs/STUDENT-OS-PLAN.md) explains the architecture, planned files and subsequent milestones.
 
-You need Node.js 20.9 or newer and Claude Code, on macOS, Linux or Windows. The machine panel (RAM, CPU, disk, dev
+Copy `.env.example` to `.env.local`, set `OPENAI_API_KEY`, and start the server. The custom server loads these files before initializing AI services; restart after changing configuration.
+`OPENAI_CHAT_MODEL` defaults to `gpt-5-mini`; `OPENAI_EMBEDDING_MODEL` defaults to `text-embedding-3-small` with `OPENAI_EMBEDDING_DIMENSIONS=1536`.
+When changing embedding model, dimensions or `OPENAI_EMBEDDING_VERSION`, reprocess the affected PDFs. The tutor only retrieves compatible vectors belonging to the selected course.
+
+AI calls send the question, a bounded recent conversation and selected excerpts to OpenAI; original PDF files stay local. Chat uses the [Responses API with structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses) and `store: false`. Local SQLite keeps conversation history. Missing key, rate limits, timeouts, invalid citations and incompatible indexes are reported in the UI. Only the newest failed question can be retried in place; request IDs prevent duplicate messages. An interrupted server request becomes retryable after its two-minute lease expires.
+
+For explicit offline testing, set `AI_OFFLINE_MODE=1`. The UI labels all simulated replies. The old `AI_MOCK_EMBEDDINGS` flag alone and an API key of `mock` no longer activate mocks. Offline indexes must be reprocessed with a real embedding provider before using live OpenAI. Automated browser tests use offline mode and do not verify live model quality.
+
+Each course has one conversation in this MVP, with its latest 40 turns displayed and a smaller recent context sent to the model. Archived courses remain readable and allow questions when opened explicitly. General-knowledge answers are labeled separately; the similarity threshold is a retrieval heuristic, not proof of relevance. Memory and learning-progress features are later milestones.
+
+You need Node.js 22 or newer and Claude Code for session visualization, on macOS, Linux or Windows. The machine panel (RAM, CPU, disk, dev
 servers, cleanup) reads each system its own way; opening a session's IDE window and quitting apps are macOS only.
 
 ```bash

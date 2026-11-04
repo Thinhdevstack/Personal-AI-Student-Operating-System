@@ -5,6 +5,7 @@ import { extractPdf } from '../documents/pdf.mjs';
 import { createChunks } from '../documents/chunking.mjs';
 import { createOpenAIProvider } from '../ai/openai.mjs';
 import { searchCourseMaterials } from '../ai/retrieval.mjs';
+import { createCourseChat } from '../ai/chat.mjs';
 
 function text(value, max, required = false) {
   if (value === undefined && !required) return '';
@@ -22,6 +23,7 @@ const publicDocument = ({ storagePath, ...document }) => document;
 export function createStudentService(dir, options = {}) {
   const db = openStudentDatabase(dir), storage = documentStorage(dir);
   const aiProvider = options.aiProvider || createOpenAIProvider();
+  const chat = createCourseChat({ db, aiProvider });
 
   function semester(id) {
     const row = db.prepare('SELECT * FROM semesters WHERE id = ?').get(id);
@@ -52,6 +54,8 @@ export function createStudentService(dir, options = {}) {
     close: () => db.close(),
     get db() { return db; },
     get aiProvider() { return aiProvider; },
+    chatHistory: chat.history,
+    sendChat: chat.send,
     snapshot() {
       return {
         semesters: db.prepare('SELECT * FROM semesters ORDER BY createdAt DESC, id').all(),
@@ -113,7 +117,7 @@ export function createStudentService(dir, options = {}) {
     deleteCourse(id) {
       db.transaction(() => {
         course(id);
-        if (db.prepare('SELECT id FROM documents WHERE courseId=? LIMIT 1').get(id)) throw new StudentError('courseNotEmpty', 409);
+        if (db.prepare('SELECT id FROM documents WHERE courseId=? LIMIT 1').get(id) || db.prepare('SELECT id FROM chat_conversations WHERE courseId=?').get(id)) throw new StudentError('courseNotEmpty', 409);
         db.prepare('DELETE FROM courses WHERE id=?').run(id);
       })();
     },
@@ -166,7 +170,7 @@ export function createStudentService(dir, options = {}) {
         // 3. Generate embeddings in batch via AI provider
         const texts = chunks.map((c) => c.content);
         const embeddings = await aiProvider.embed(texts);
-        if (!embeddings || embeddings.length !== chunks.length) {
+        if (!embeddings || embeddings.length !== chunks.length || embeddings.some((vector) => vector.length !== aiProvider.dimensions || !vector.every(Number.isFinite))) {
           throw new StudentError('aiEmbeddingMismatch', 500);
         }
 
@@ -207,7 +211,7 @@ export function createStudentService(dir, options = {}) {
               blob,
               aiProvider.model,
               aiProvider.dimensions,
-              '',
+              aiProvider.version || '',
               time
             );
           }
@@ -223,7 +227,7 @@ export function createStudentService(dir, options = {}) {
         return publicDocument(document(id));
       } catch (err) {
         // Any failure transitions document to failed and records error message
-        const errorCode = err instanceof StudentError ? err.code : (err.message || 'processingFailed');
+        const errorCode = err instanceof StudentError ? err.code : 'processingFailed';
         db.prepare(`
           UPDATE documents
           SET status = 'failed', processingError = ?

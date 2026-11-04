@@ -40,6 +40,8 @@ export function createStudentRoutes({ service, authorized, sameOrigin }) {
       const parts = url.pathname.split('/').filter(Boolean).slice(2);
       const [kind, id, child] = parts;
       if (req.method === 'GET' && parts.length === 1 && kind === 'snapshot') return send(res, 200, service.snapshot());
+      if (parts.length === 1 && kind === 'chat' && req.method === 'POST') return send(res, 200, await service.sendChat(await readObject(req)));
+      if (parts.length === 3 && kind === 'courses' && child === 'chat' && req.method === 'GET') return send(res, 200, service.chatHistory(id, url.searchParams.get('conversationId')));
       if (parts.length === 1 && req.method === 'POST') {
         if (kind === 'semesters') return send(res, 201, service.createSemester(await readObject(req)));
         if (kind === 'courses') return send(res, 201, service.createCourse(await readObject(req)));
@@ -68,7 +70,8 @@ export function createStudentRoutes({ service, authorized, sameOrigin }) {
           const body = await readObject(req);
           query = body.query;
           limit = body.limit;
-          includeArchived = Boolean(body.includeArchived);
+          if (body.includeArchived !== undefined && typeof body.includeArchived !== 'boolean') throw new StudentError('invalidInput');
+          includeArchived = body.includeArchived === true;
         } else if (req.method === 'GET') {
           query = url.searchParams.get('query') || url.searchParams.get('q');
           limit = url.searchParams.get('limit');
@@ -110,7 +113,7 @@ export function createStudentRoutes({ service, authorized, sameOrigin }) {
       }
       throw new StudentError('notFound', 404);
     } catch (error) {
-      if (!(error instanceof StudentError)) console.error('student API', error);
+      if (!(error instanceof StudentError)) console.error('student API: internal failure');
       if (!res.headersSent) send(res, error.status || 500, { error: error instanceof StudentError ? error.code : 'serverError' });
       else res.destroy();
       req.resume();

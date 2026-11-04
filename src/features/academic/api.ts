@@ -43,5 +43,5 @@ export const searchCourse = (courseId: string, query: string, limit = 5) =>
   request<{ results: SearchResult[] }>(`courses/${courseId}/search`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query, limit }),
+    body: JSON.stringify({ query, limit, includeArchived: true }),
   });

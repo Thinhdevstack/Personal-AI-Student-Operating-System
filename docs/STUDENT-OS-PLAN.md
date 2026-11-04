@@ -165,3 +165,63 @@ npm.cmd start
 ```
 
 Mở `http://localhost:4310/student?lang=vi`. Khi đã cài Node hệ thống, dùng `npm install`, `npm run dev` hoặc `npm run build` rồi `npm start` như bình thường.
+
+## 10. Milestone 3 — Course Tutor
+
+### Khảo sát M2 trước triển khai
+
+Baseline `110793b` đã có PDF.js extraction, page-aware chunks, SQLite embeddings và OpenAI SDK 7.47.0. 13 test Student M1/M2 đạt trước khi sửa. Những lỗi ảnh hưởng trực tiếp M3 đã được xử lý:
+
+- Gửi dimensions thật cho text-embedding-3 và xác thực vector trả về; ghi model/dimensions/version nhất quán.
+- Retrieval loại model/version khác kể cả khi cùng dimensions, kiểm tra byte length, đọc BLOB không phụ thuộc alignment, chỉ dùng ready documents cùng course.
+- `includeArchived` nay có hiệu lực; UI search và Chat opt-in khi người dùng mở đích danh môn lưu trữ.
+- `server/env.mjs` load `.env*` bằng loader của Next trước khi tạo provider. API key không tự bật mock; offline phải bật `AI_OFFLINE_MODE=1` và có nhãn trên UI.
+
+### File và kiến trúc
+
+```text
+server/env.mjs                         # startup env trước AI initialization
+server/ai/config.mjs                   # AI config và context/output limits
+server/ai/openai.mjs                   # embed + Responses chat, errors đã sanitize
+server/ai/retrieval.mjs                # compatible vectors, scope và threshold
+server/ai/context.mjs                  # bounded history/sources và citation validation
+server/ai/chat.mjs                     # conversation, retry, lock và persistence
+server/student/migrations/003-chat.sql # conversations, turns, messages
+src/features/ai/types.ts
+src/features/ai/api.ts
+src/features/ai/CourseChat.tsx
+tests/fixtures/student-pdf.mjs
+tests/unit/student-m3.test.mjs
+```
+
+Các file hiện có sửa: `server/index.mjs` (import env), `server/student/{database,service,routes}.mjs`, `src/features/academic/{StudentWorkspace.tsx,api.ts}`, dictionaries Student en/vi, `src/styles/student.css`, `tests/e2e/student.spec.ts`, `playwright.config.ts`, `.env.example`, README và tài liệu này. Không thêm dependency.
+
+Luồng: validated request → DB reservation → course-scoped retrieval → context builder → OpenAI Responses structured JSON → citation whitelist → commit assistant message + sources. Model mặc định `gpt-5-mini`, có thể đổi bằng `OPENAI_CHAT_MODEL`; phản hồi trả JSON khi hoàn tất, chưa streaming. Xem [Structured Outputs](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses), [GPT-5 mini](https://developers.openai.com/api/docs/models/gpt-5-mini), [embedding dimensions](https://developers.openai.com/api/reference/resources/embeddings/methods/create).
+
+API mới, giữ nguyên group chat `/api/chat`:
+
+- `GET /api/student/courses/:courseId/chat`: latest 40 turns, optional conversationId được kiểm tra scope.
+- `POST /api/student/chat`: `{ courseId, message, requestId?, conversationId?, language?: "en"|"vi" }`. Request tối thiểu vẫn chỉ cần courseId/message; client dùng UUID requestId để retry idempotent. Client không được gửi role/history/system.
+
+Một conversation cho mỗi course. Turn reservation trong SQLite transaction immediate + unique pending index bảo vệ giữa nhiều kết nối. Hai yêu cầu đồng thời nhận `chatBusy`; completed requestId được replay, payload khác nhận conflict. Retry giữ nguyên user message, chỉ cho failed turn mới nhất. Lease 120 giây cho request bị ngắt/restart; attemptId ngăn worker cũ ghi đè lượt retry. Failed turn không có assistant message giả. Course có conversation không được xóa như course trống; archive giữ toàn bộ dữ liệu.
+
+### Context, nguồn và giới hạn
+
+- Question tối đa 4.000 ký tự, 10 history messages/8.000 ký tự, top 5 chunks/12.000 ký tự; serialized context tối đa 28.000 ký tự; output tối đa 4.096 tokens và 16.000 ký tự. Đây là giới hạn ký tự bảo thủ, không phải token counting chính xác.
+- Follow-up ngắn dùng thêm câu hỏi gần nhất khi retrieval, lấy từ DB của đúng conversation.
+- Sources được backend gán S1…S5. Assistant chỉ được trả source IDs trong tập đó. Metadata hiển thị gồm documentId/name, page, chunkId/index; không gửi physical path hoặc embedding về chat UI. Citation filtering bảo vệ tính hợp lệ của ID, không tự chứng minh nội dung model luôn đúng.
+- Plain-text output được React escape; không render raw HTML/Markdown. Document content được đặt trong context dạng dữ liệu không tin cậy, không có tool execution.
+- Không có ready PDF: failed turn + lỗi rõ để người dùng upload/process rồi retry. Có ready PDF nhưng relevance thấp: model được yêu cầu báo thiếu căn cứ hoặc ghi rõ kiến thức chung, không gán nguồn giả. Cosine cutoff 0.25 là heuristic, chất lượng semantic thực cần đánh giá với dữ liệu/live embeddings.
+- Archived course: xem history và hỏi tiếp khi mở đích danh course; không đưa archived vào Today/planning mặc định.
+- Chế độ offline mô phỏng cả embeddings và answer, có nhãn rõ; muốn live phải đổi về 0 và xử lý lại tài liệu mock.
+- Chưa có API key trong workspace lúc triển khai: chưa xác minh live OpenAI. Automated tests dùng injected/offline provider, không được tính là live test. Không triển khai Memory M4.
+
+### Kết quả kiểm tra M3
+
+- `npm run typecheck`, `npm run lint`: đạt.
+- `npm test`: 171 test, 168 đạt, 3 skip sẵn có trên Windows; không lỗi. Có 10 test M3 mới cho scope, persistence, retry/lease/concurrency, provider config/errors, context/citations và HTTP guards.
+- `npm run build`: đạt. Build kiểm tra E2E riêng ở `.next-e2e`; build production mặc định ở `.next`.
+- Playwright Student + Office smoke: 8 đạt. Bổ sung lượt chạy Course Tutor riêng sau chỉnh recovery UI: đạt cả mất request trước server lẫn mất response sau khi server đã commit; không thêm message trùng. Có screenshot desktop/mobile và kiểm tra tiếng Việt/course isolation.
+- `npm run smoke`: đạt trên Windows (server/page/hook/machine panel/installer dùng settings tạm).
+- Static export tiếng Việt `/my-office/vi`: đạt từ bản copy source trong `data/tooling/m3-static`, không đụng artifacts production/E2E đang phục vụ. `/student` static vẫn giải thích cần server local.
+- Live OpenAI: chưa chạy vì không có key. Cần kiểm tra một câu hỏi thật sau khi cấu hình key và process PDF bằng embeddings thật; không dùng kết quả offline để khẳng định chất lượng Tutor hoặc semantic search.
