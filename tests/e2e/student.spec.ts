@@ -187,3 +187,112 @@ test('@smoke course tutor uses scoped sources, persists history, retries and wor
   await expect(page.getByText('Thêm và xử lý PDF', { exact: false })).toBeVisible();
   expect(errors).toEqual([]);
 });
+
+test('@smoke memory is explicit, scoped, persistent and reflected in tutor context snapshots', async ({ page, request }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  const semester = await (await request.post('/api/student/semesters', { data: { name: 'Memory semester', academicYear: '2026' } })).json();
+  const createCourse = async (name: string) => (await request.post('/api/student/courses', { data: { semesterId: semester.id, name } })).json();
+  const course = await createCourse('Memory OOP'), other = await createCourse('Memory Database');
+  for (const item of [course, other]) {
+    const doc = await (await request.post(`/api/student/courses/${item.id}/materials?filename=MemoryLecture.pdf`, { headers: { 'Content-Type': 'application/pdf' }, data: studentPdf() })).json();
+    expect((await request.post(`/api/student/documents/${doc.id}/process?sync=true`)).ok()).toBe(true);
+  }
+  const memories = async (scope: string, id?: string) => (await request.get(`/api/student/memories?scope=${scope}${id ? `&courseId=${id}` : ''}`)).json();
+  await page.goto('/student?view=memory');
+  await page.getByRole('button', { name: '+ Add memory', exact: true }).click();
+  const dialog = page.getByRole('dialog');
+  await dialog.getByLabel('Memory content', { exact: true }).fill('Use brief examples.');
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await expect(page.locator('.student-memory-list')).toContainText('Use brief examples.');
+
+  await page.goto(`/student?course=${course.id}&tab=memory`);
+  await page.getByRole('button', { name: '+ Add memory', exact: true }).click();
+  await dialog.getByLabel('Memory content', { exact: true }).fill('Composition is difficult for me.');
+  // Persist the save but lose its response. Retrying must keep the original request ID.
+  await page.route('**/api/student/memories', async (route) => { await route.fetch(); await route.abort('failed'); }, { times: 1 });
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog.getByRole('alert')).toBeVisible();
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  expect((await memories('course', course.id)).length).toBe(1);
+  await expect(page.getByRole('button', { name: 'Delete empty course', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: 'Chat', exact: true }).click();
+  const ask = async (question: string) => {
+    await expect(page.getByLabel('Your question', { exact: true })).toBeVisible();
+    const count = await page.locator('.student-chat-assistant').count();
+    await page.getByLabel('Your question', { exact: true }).fill(question);
+    await page.getByRole('button', { name: 'Send', exact: true }).click();
+    await expect(page.locator('.student-chat-assistant')).toHaveCount(count + 1);
+  };
+  await ask('Explain aggregation and composition');
+  const answers = page.locator('.student-chat-assistant');
+  await answers.last().getByText('Memory shared with the tutor', { exact: false }).click();
+  await expect(answers.last().locator('.student-chat-memories')).toContainText('Composition is difficult for me.');
+  await expect(answers.last().locator('.student-chat-memories')).toContainText('Use brief examples.');
+  expect((await memories('course', course.id)).length, 'chat alone must not create notes').toBe(1);
+  await page.reload();
+  await expect(answers).toHaveCount(1);
+  await answers.first().getByRole('button', { name: 'Save to memory', exact: true }).click();
+  await expect(dialog.getByLabel('Save scope')).toHaveValue('course');
+  await dialog.getByLabel('Memory content', { exact: true }).fill('Aggregation needs a diagram.');
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  expect((await memories('course', course.id)).length).toBe(2);
+  expect((await memories('global')).length).toBe(1);
+
+  await page.getByRole('button', { name: 'Memory', exact: true }).click();
+  const initial = page.locator('.student-memory-list > li').filter({ hasText: 'Composition is difficult for me.' });
+  await initial.getByRole('button', { name: 'Edit memory', exact: true }).click();
+  await dialog.getByLabel('Memory content', { exact: true }).fill('Composition now needs a small example.');
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  await page.getByRole('button', { name: 'Chat', exact: true }).click();
+  await ask('Explain composition again');
+  await answers.last().locator('summary').click();
+  await expect(answers.last().locator('.student-chat-memories')).toContainText('Composition now needs a small example.');
+  await answers.first().locator('summary').click();
+  await expect(answers.first().locator('.student-chat-memories')).toContainText('Composition is difficult for me.');
+  await page.getByRole('button', { name: 'Memory', exact: true }).click();
+  for (let i = 0; i < 2; i++) {
+    await page.locator('.student-memory-list > li').first().getByRole('button', { name: 'Delete memory', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Confirm', exact: true }).click();
+    await expect(dialog).toBeHidden();
+    await expect(page.locator('.student-memory-list > li')).toHaveCount(1 - i);
+  }
+  await page.getByRole('button', { name: 'Chat', exact: true }).click();
+  await ask('Explain composition after deleting the notes');
+  await answers.last().locator('summary').click();
+  await expect(answers.last().locator('.student-chat-memories')).not.toContainText('Composition now needs a small example.');
+  await expect(answers.last().locator('.student-chat-memories li')).toHaveCount(1);
+  await page.screenshot({ path: test.info().outputPath('memory-chat-desktop.png'), fullPage: true });
+
+  await page.goto(`/student?course=${other.id}&tab=chat`);
+  await ask('Explain composition for this course');
+  await answers.last().locator('summary').click();
+  await expect(answers.last().locator('.student-chat-memories li')).toHaveCount(1);
+  await expect(answers.last().locator('.student-chat-memories')).toContainText('Use brief examples.');
+  // Global save from chat requires an explicit scope change and keeps its source course.
+  await answers.last().getByRole('button', { name: 'Save to memory', exact: true }).click();
+  await expect(dialog.getByLabel('Save scope')).toHaveValue('course');
+  await dialog.getByLabel('Save scope').selectOption('global');
+  await dialog.getByLabel('Memory content', { exact: true }).fill('Ask a short check question.');
+  await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(dialog).toBeHidden();
+  const savedGlobal = (await memories('global')).find((note: { content: string }) => note.content === 'Ask a short check question.');
+  expect(savedGlobal.sourceCourseId).toBe(other.id);
+  expect((await memories('course', other.id)).length).toBe(0);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('/student?view=memory&lang=vi');
+  await expect(page.getByRole('heading', { name: 'Sở thích chung', exact: true, level: 1 })).toBeVisible();
+  await expect(page.locator('.student-memory-list > li')).toHaveCount(2);
+  await page.locator('.memory-workspace').scrollIntoViewIfNeeded();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+  await page.screenshot({ path: test.info().outputPath('memory-mobile-vi.png'), fullPage: true });
+  await page.locator('.student-memory-list > li').first().getByRole('button', { name: 'Sửa bộ nhớ', exact: true }).click();
+  await expect(dialog).toBeVisible();
+  await page.screenshot({ path: test.info().outputPath('memory-editor-mobile-vi.png'), fullPage: true });
+  await dialog.getByRole('button', { name: 'Hủy', exact: true }).click();
+  expect(errors).toEqual([]);
+});

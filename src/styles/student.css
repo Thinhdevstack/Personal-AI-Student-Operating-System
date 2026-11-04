@@ -97,6 +97,16 @@
 .student-material-actions button { font-size: 11px; padding: 4px 8px; }
 
 .course-chat { min-width: 0; }
+.student-memory-list { list-style: none; padding: 0; }
+.student-memory-list > li { border: 1px solid var(--line-2); border-radius: 10px; padding: 18px; margin: 14px 0; }
+.student-memory-content { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; color: var(--ink) !important; }
+.student-memory-scope { color: var(--accent-hi); font-size: 12px; }
+.student-memory-list small, .student-chat-memories small { color: var(--muted); font-size: 11px; }
+.memory-editor textarea { resize: vertical; }
+.student-chat-memories { margin-top: 18px; border: 1px solid var(--line); border-radius: 8px; padding: 12px; font-size: 12px; }
+.student-chat-memories summary { cursor: pointer; color: var(--accent-hi); }
+.student-chat-memories ul { padding-left: 18px; }
+.student-shell .student-save-memory { font-size: 11px; margin-top: 16px; }
 .student-chat-scope { color: var(--muted); font-size: 11px; }
 .student-chat-log { max-height: 65dvh; overflow-y: auto; overscroll-behavior: contain; padding: 8px 4px; }
 .student-chat-message { padding: 18px; border: 1px solid var(--line-2); border-radius: 12px; margin: 12px 0; overflow-wrap: anywhere; }

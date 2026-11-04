@@ -4,11 +4,12 @@ import { aiError } from './openai.mjs';
 import { buildAIContext, retrievalQuestion, validateTutorAnswer } from './context.mjs';
 import { searchCourseMaterials } from './retrieval.mjs';
 import { StudentError } from '../student/storage.mjs';
+import { createMemoryService } from './memory.mjs';
 
 const uuid = (value) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 const time = () => new Date().toISOString();
 
-export function createCourseChat({ db, aiProvider }) {
+export function createCourseChat({ db, aiProvider, memory = createMemoryService({ db }) }) {
   function course(id) {
     if (!uuid(id)) throw new StudentError('invalidInput');
     const row = db.prepare('SELECT * FROM courses WHERE id=?').get(id);
@@ -32,7 +33,7 @@ export function createCourseChat({ db, aiProvider }) {
     const messages = db.prepare('SELECT m.* FROM chat_messages m JOIN chat_turns t ON t.id=m.turnId WHERE m.conversationId=? AND t.sequence >= ? ORDER BY t.sequence, CASE m.role WHEN \'user\' THEN 0 ELSE 1 END').all(row.id, turns[0]?.sequence || 0);
     return {
       conversationId: row.id, isMock: !!aiProvider.isMock,
-      turns: turns.map((turn) => ({ ...turn, isMock: !!turn.isMock, messages: messages.filter((message) => message.turnId === turn.id).map(({ id, role, content, basis, sources, createdAt }) => ({ id, role, content, basis, sources: JSON.parse(sources), createdAt })) })),
+      turns: turns.map((turn) => ({ ...turn, isMock: !!turn.isMock, messages: messages.filter((message) => message.turnId === turn.id).map(({ id, role, content, basis, sources, memories, createdAt }) => ({ id, role, content, basis, sources: JSON.parse(sources), memories: JSON.parse(memories), createdAt })) })),
     };
   }
   async function send(input) {
@@ -65,13 +66,14 @@ export function createCourseChat({ db, aiProvider }) {
       if (!db.prepare("SELECT id FROM documents WHERE courseId=? AND status='ready' LIMIT 1").get(activeCourse.id)) throw new StudentError('chatNoMaterials', 409);
       const recent = db.prepare("SELECT m.role, m.content FROM chat_messages m JOIN chat_turns t ON t.id=m.turnId WHERE m.conversationId=? AND t.status='completed' ORDER BY t.sequence DESC, CASE m.role WHEN 'assistant' THEN 0 ELSE 1 END LIMIT ?").all(claimed.conversationId, L.historyMessages).reverse();
       const retrieved = await searchCourseMaterials({ db, courseId: activeCourse.id, query: retrievalQuestion(message, recent), aiProvider, limit: L.chunks, minScore: L.retrievalMinScore, includeArchived: true });
-      const context = buildAIContext({ course: activeCourse, message, history: recent, results: retrieved.results, lang: language });
+      const memories = memory.select({ courseId: activeCourse.id, query: retrievalQuestion(message, recent), includeArchived: true });
+      const context = buildAIContext({ course: activeCourse, message, history: recent, results: retrieved.results, memories, lang: language });
       const response = await aiProvider.chat(context);
       const answer = validateTutorAnswer(response, context.sources);
       db.transaction(() => {
         const turn = db.prepare("SELECT id FROM chat_turns WHERE id=? AND attemptId=? AND status='pending' AND leaseExpiresAt>?").get(claimed.id, claimed.attemptId, Date.now());
         if (!turn) throw new StudentError('chatInterrupted', 409);
-        db.prepare("INSERT INTO chat_messages (id, conversationId, turnId, role, content, basis, sources, createdAt) VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?)").run(randomUUID(), claimed.conversationId, claimed.id, answer.answer, answer.basis, JSON.stringify(answer.sources), time());
+        db.prepare("INSERT INTO chat_messages (id, conversationId, turnId, role, content, basis, sources, memories, createdAt) VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?)").run(randomUUID(), claimed.conversationId, claimed.id, answer.answer, answer.basis, JSON.stringify(answer.sources), JSON.stringify(context.memories), time());
         db.prepare("UPDATE chat_turns SET status='completed', model=?, isMock=? WHERE id=?").run(aiProvider.chatModel || response.model || 'unknown', aiProvider.isMock ? 1 : 0, claimed.id);
         db.prepare('UPDATE chat_conversations SET updatedAt=? WHERE id=?').run(time(), claimed.conversationId);
       })();

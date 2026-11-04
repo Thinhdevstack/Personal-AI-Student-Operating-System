@@ -5,9 +5,10 @@ import { createT } from '@/i18n/index.js';
 import { AcademicApiError, apiUrl } from '@/features/academic/api';
 import { chatHistory, sendChat } from './api';
 import type { ChatRequest } from './api';
-import type { ChatHistory, ChatTurn } from './types';
+import type { ChatHistory, ChatTurn, ChatMessage } from './types';
+import { MemoryEditor } from './MemoryWorkspace';
 
-export default function CourseChat({ courseId, lang, hasReadyMaterials }: { courseId: string; lang: string; hasReadyMaterials: boolean }) {
+export default function CourseChat({ courseId, lang, hasReadyMaterials, onMemoryChange }: { courseId: string; lang: string; hasReadyMaterials: boolean; onMemoryChange?: () => void }) {
   const translate = createT(lang);
   const t = (key: string) => String(translate(`student.${key}`));
   const [history, setHistory] = useState<ChatHistory | null>(null);
@@ -16,6 +17,8 @@ export default function CourseChat({ courseId, lang, hasReadyMaterials }: { cour
   const [error, setError] = useState('');
   const [uncertain, setUncertain] = useState<ChatRequest | null>(null);
   const [reload, setReload] = useState(0);
+  const [savingMemory, setSavingMemory] = useState<ChatMessage | null>(null);
+  const [memorySaved, setMemorySaved] = useState(false);
   const inFlight = useRef(false);
   const alive = useRef(true);
   const requestController = useRef<AbortController | null>(null);
@@ -75,6 +78,7 @@ export default function CourseChat({ courseId, lang, hasReadyMaterials }: { cour
     <div className="student-section-heading"><h2>{t('tutor.title')}</h2><span className="student-chat-scope">{t('tutor.courseScope')}</span></div>
     {history?.isMock && <p className="student-chat-offline" role="status">{t('tutor.offline')}</p>}
     {!hasReadyMaterials && <p className="student-chat-hint">{t('tutor.noMaterials')}</p>}
+    {memorySaved && <p role="status">{t('memory.saved')}</p>}
     {error && <div className="student-error" role="alert">{t(`errors.${error}`)} <button type="button" onClick={() => setReload((value) => value + 1)}>{t('retry')}</button></div>}
     {!history ? <p>{t('loading')}</p> : <>
       {!history.turns.length && <div className="student-empty">{t('tutor.welcome')}</div>}
@@ -86,6 +90,8 @@ export default function CourseChat({ courseId, lang, hasReadyMaterials }: { cour
             {/* React escapes plain text; model output is never interpreted as HTML. */}
             <div className="student-chat-text">{item.content}</div>
             {!!item.sources.length && <div className="student-chat-sources"><strong>{t('tutor.sources')}</strong><ul>{item.sources.map((source) => <li key={source.sourceId}><a href={apiUrl(`documents/${source.documentId}/file`)}>{source.documentName} · {t('page')} {source.pageNumber}</a><small>{source.sourceId} · {t('tutor.chunk')} {source.chunkIndex + 1}</small></li>)}</ul></div>}
+            {!!item.memories?.length && <details className="student-chat-memories"><summary>{t('memory.shared')} ({item.memories.length})</summary><p>{t('memory.snapshotHint')}</p><ul>{item.memories.map((memory) => <li key={memory.id}><small>{t(memory.scope === 'global' ? 'memory.global' : 'memory.course')}</small><p className="student-memory-content">{memory.content}</p></li>)}</ul></details>}
+            {turn.status === 'completed' && <button type="button" className="student-save-memory" onClick={() => { setMemorySaved(false); setSavingMemory(item); }}>{t('memory.saveFromChat')}</button>}
           </article>)}
           {turn.status === 'pending' && <p role="status">{t('tutor.responding')}</p>}
           {turn.status === 'failed' && <div className="student-chat-failed"><p>{t(`errors.${turn.errorCode || 'aiUnavailable'}`)}</p>{index === history.turns.length - 1 && <button type="button" disabled={working || pending || !hasReadyMaterials} onClick={() => retry(turn)}>{t('tutor.retry')}</button>}</div>}
@@ -104,5 +110,6 @@ export default function CourseChat({ courseId, lang, hasReadyMaterials }: { cour
         <div><small>{message.length}/4000 · {t('tutor.enterHint')}</small><button className="student-primary" type="submit" disabled={working || pending || !message.trim() || !hasReadyMaterials || !!unresolved}>{working || pending ? t('tutor.responding') : t('tutor.send')}</button></div>
       </form>
     </>}
+    {savingMemory && <MemoryEditor lang={lang} target={{ scope: 'course', courseId }} initialContent={savingMemory.content} source={{ sourceMessageId: savingMemory.id, sourceCourseId: courseId }} allowGlobal onClose={() => setSavingMemory(null)} onSaved={() => { setMemorySaved(true); onMemoryChange?.(); }} />}
   </div>;
 }

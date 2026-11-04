@@ -6,6 +6,7 @@ import { createChunks } from '../documents/chunking.mjs';
 import { createOpenAIProvider } from '../ai/openai.mjs';
 import { searchCourseMaterials } from '../ai/retrieval.mjs';
 import { createCourseChat } from '../ai/chat.mjs';
+import { createMemoryService } from '../ai/memory.mjs';
 
 function text(value, max, required = false) {
   if (value === undefined && !required) return '';
@@ -23,7 +24,8 @@ const publicDocument = ({ storagePath, ...document }) => document;
 export function createStudentService(dir, options = {}) {
   const db = openStudentDatabase(dir), storage = documentStorage(dir);
   const aiProvider = options.aiProvider || createOpenAIProvider();
-  const chat = createCourseChat({ db, aiProvider });
+  const memory = createMemoryService({ db });
+  const chat = createCourseChat({ db, aiProvider, memory });
 
   function semester(id) {
     const row = db.prepare('SELECT * FROM semesters WHERE id = ?').get(id);
@@ -56,10 +58,14 @@ export function createStudentService(dir, options = {}) {
     get aiProvider() { return aiProvider; },
     chatHistory: chat.history,
     sendChat: chat.send,
+    memories: memory.list,
+    createMemory: memory.create,
+    updateMemory: memory.update,
+    deleteMemory: memory.remove,
     snapshot() {
       return {
         semesters: db.prepare('SELECT * FROM semesters ORDER BY createdAt DESC, id').all(),
-        courses: db.prepare('SELECT * FROM courses ORDER BY name, id').all(),
+        courses: db.prepare('SELECT c.*, (EXISTS(SELECT 1 FROM documents d WHERE d.courseId=c.id) OR EXISTS(SELECT 1 FROM chat_conversations h WHERE h.courseId=c.id) OR EXISTS(SELECT 1 FROM memories m WHERE m.courseId=c.id OR m.sourceCourseId=c.id)) AS hasData FROM courses c ORDER BY name, id').all(),
         recentMaterials: db.prepare(`
           SELECT d.*,
                  (SELECT COUNT(*) FROM document_chunks WHERE documentId = d.id) AS chunkCount
@@ -117,7 +123,7 @@ export function createStudentService(dir, options = {}) {
     deleteCourse(id) {
       db.transaction(() => {
         course(id);
-        if (db.prepare('SELECT id FROM documents WHERE courseId=? LIMIT 1').get(id) || db.prepare('SELECT id FROM chat_conversations WHERE courseId=?').get(id)) throw new StudentError('courseNotEmpty', 409);
+        if (db.prepare('SELECT id FROM documents WHERE courseId=? LIMIT 1').get(id) || db.prepare('SELECT id FROM chat_conversations WHERE courseId=?').get(id) || db.prepare('SELECT id FROM memories WHERE courseId=? OR sourceCourseId=? LIMIT 1').get(id, id)) throw new StudentError('courseNotEmpty', 409);
         db.prepare('DELETE FROM courses WHERE id=?').run(id);
       })();
     },

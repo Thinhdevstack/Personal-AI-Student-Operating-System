@@ -39,6 +39,13 @@ export function createStudentRoutes({ service, authorized, sameOrigin }) {
       if (!['GET', 'HEAD'].includes(req.method) && !sameOrigin(req)) throw new StudentError('forbidden', 403);
       const parts = url.pathname.split('/').filter(Boolean).slice(2);
       const [kind, id, child] = parts;
+      if (kind === 'memories' && parts.length <= 2) {
+        const target = { scope: url.searchParams.get('scope'), courseId: url.searchParams.get('courseId') };
+        if (parts.length === 1 && req.method === 'GET') return send(res, 200, service.memories(target));
+        if (parts.length === 1 && req.method === 'POST') return send(res, 201, service.createMemory(await readObject(req)));
+        if (parts.length === 2 && req.method === 'PATCH') return send(res, 200, service.updateMemory(id, target, await readObject(req)));
+        if (parts.length === 2 && req.method === 'DELETE') { service.deleteMemory(id, target); return send(res, 200, { ok: true }); }
+      }
       if (req.method === 'GET' && parts.length === 1 && kind === 'snapshot') return send(res, 200, service.snapshot());
       if (parts.length === 1 && kind === 'chat' && req.method === 'POST') return send(res, 200, await service.sendChat(await readObject(req)));
       if (parts.length === 3 && kind === 'courses' && child === 'chat' && req.method === 'GET') return send(res, 200, service.chatHistory(id, url.searchParams.get('conversationId')));

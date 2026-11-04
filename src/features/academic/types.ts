@@ -13,6 +13,7 @@ export interface Semester {
 }
 
 export interface Course {
+  hasData: number;
   id: string;
   semesterId: string;
   name: string;

@@ -24,7 +24,7 @@ open <http://localhost:4310/?demo>. Or try it online, nothing to install: <https
 
 ## Quick start
 
-### Student Workspace and Course Tutor (Milestone 3)
+### Student Workspace, Course Tutor and Memory (Milestone 4)
 
 Open `http://localhost:4310/student` after starting the local server (`npm run dev`, or `npm run build` then `npm start`).
 The office remains at `/`; its Academic link opens the workspace. Claude Code and an OpenAI key are not needed for
@@ -48,7 +48,13 @@ AI calls send the question, a bounded recent conversation and selected excerpts 
 
 For explicit offline testing, set `AI_OFFLINE_MODE=1`. The UI labels all simulated replies. The old `AI_MOCK_EMBEDDINGS` flag alone and an API key of `mock` no longer activate mocks. Offline indexes must be reprocessed with a real embedding provider before using live OpenAI. Automated browser tests use offline mode and do not verify live model quality.
 
-Each course has one conversation in this MVP, with its latest 40 turns displayed and a smaller recent context sent to the model. Archived courses remain readable and allow questions when opened explicitly. General-knowledge answers are labeled separately; the similarity threshold is a retrieval heuristic, not proof of relevance. Memory and learning-progress features are later milestones.
+Each course has one conversation in this MVP, with its latest 40 turns displayed and a smaller recent context sent to the model. Archived courses remain readable and allow questions when opened explicitly. General-knowledge answers are labeled separately; the similarity threshold is a retrieval heuristic, not proof of relevance. Learning-progress features remain for later work.
+
+**Memory V1:** open **Global preferences** in the sidebar to save learning preferences shared across courses, or the **Memory** tab of a course for its goals and difficulties. Use **Save to memory** on a completed chat message to review and edit a note before saving. This defaults to the current course; global scope requires an explicit selection. Chat never saves memories automatically. You can edit/delete notes, including those in a course you explicitly open after archiving. Changes affect future context selections; existing chat text and memory snapshots remain.
+
+Each note allows 1,000 characters, with up to 50 global preferences and 100 notes per course. Each question can include up to two global preferences plus relevant notes from its own course, capped at six notes and 3,000 content characters within the existing total context limit. Course selection uses lexical overlap with Vietnamese accent normalization, not semantic memory search; synonyms and mixed languages can miss matches. Global preferences use relevance then recency. Memory shown under an answer is a snapshot of notes sent to the tutor, separate from PDF evidence; it does not prove the model followed those notes. Selected memories are sent to OpenAI with the question, just like selected excerpts. Deleted notes stop being selected; old answers may still discuss them in the bounded conversation history.
+
+M1–M3 functionality is implemented and M4 adds explicit memory. M5's Student-to-3D event adapter remains unimplemented. Automated checks use a controlled offline provider; live OpenAI integration and the quality of memory-guided answers have not been verified in this workspace because no API key is configured. M4 work remains local on `feat/memory-m4` until you commit/push it.
 
 You need Node.js 22 or newer and Claude Code for session visualization, on macOS, Linux or Windows. The machine panel (RAM, CPU, disk, dev
 servers, cleanup) reads each system its own way; opening a session's IDE window and quitting apps are macOS only.

@@ -6,8 +6,9 @@ import { createT } from '@/i18n/index.js';
 import type { AcademicSnapshot, Course, Material, SearchResult, Semester } from './types';
 import * as api from './api';
 import CourseChat from '@/features/ai/CourseChat';
+import MemoryWorkspace from '@/features/ai/MemoryWorkspace';
 
-type Tab = 'overview' | 'materials' | 'chat' | 'progress';
+type Tab = 'overview' | 'materials' | 'chat' | 'memory' | 'progress';
 type Editor = { kind: 'semester' | 'course'; action: 'create' | 'rename' | 'archive' | 'delete'; id?: string; name?: string };
 const MAX_PDF_BYTES = 20 * 1024 * 1024;
 
@@ -17,7 +18,7 @@ export default function StudentWorkspace({ lang }: { lang: string }) {
   const [data, setData] = useState<AcademicSnapshot | null>(null);
   const [semesterId, setSemesterId] = useState('');
   const [courseId, setCourseId] = useState('');
-  const [view, setView] = useState<'today' | 'academic'>('today');
+  const [view, setView] = useState<'today' | 'academic' | 'memory'>('today');
   const [tab, setTab] = useState<Tab>('overview');
   const [showArchived, setShowArchived] = useState(false);
   const [library, setLibrary] = useState<{ courseId: string; items: Material[] } | null>(null);
@@ -47,9 +48,10 @@ export default function StudentWorkspace({ lang }: { lang: string }) {
       const selected = result.courses.find((c) => c.id === params.get('course'));
       setSemesterId(selected?.semesterId || result.semesters.find((s) => s.isActive)?.id || result.semesters.find((s) => s.status === 'active')?.id || '');
       if (selected) {
-        setCourseId(selected.id); setView('academic'); setTab(params.get('tab') === 'chat' ? 'chat' : 'materials');
+        setCourseId(selected.id); setView('academic'); setTab(params.get('tab') === 'chat' ? 'chat' : params.get('tab') === 'memory' ? 'memory' : 'materials');
         setShowArchived(selected.status === 'archived');
       }
+      if (params.get('view') === 'memory') setView('memory');
       const officeParams = new URLSearchParams();
       for (const key of ['k', 'lang']) if (params.get(key)) officeParams.set(key, params.get(key)!);
       setOfficeHref(`/${officeParams.size ? `?${officeParams}` : ''}`);
@@ -90,13 +92,20 @@ export default function StudentWorkspace({ lang }: { lang: string }) {
   function chooseCourse(item: Course) {
     setSemesterId(item.semesterId); setCourseId(item.id); setView('academic'); setTab('overview'); setError(''); setNotice('');
     setSearchQuery(''); setSearchResults(null);
-    const url = new URL(window.location.href); url.searchParams.set('course', item.id); window.history.replaceState(null, '', url);
+    const url = new URL(window.location.href); url.searchParams.set('course', item.id); url.searchParams.delete('view'); url.searchParams.delete('tab'); window.history.replaceState(null, '', url);
   }
   function chooseSemester(id: string) {
     setSemesterId(id); setCourseId(''); setView('academic');
     setSearchQuery(''); setSearchResults(null);
-    const url = new URL(window.location.href); url.searchParams.delete('course'); window.history.replaceState(null, '', url);
+    const url = new URL(window.location.href); url.searchParams.delete('course'); url.searchParams.delete('view'); url.searchParams.delete('tab'); window.history.replaceState(null, '', url);
   }
+  function chooseView(next: 'today' | 'academic' | 'memory') {
+    setView(next);
+    const url = new URL(window.location.href);
+    if (next === 'memory') url.searchParams.set('view', 'memory'); else url.searchParams.delete('view');
+    window.history.replaceState(null, '', url);
+  }
+  function refreshSnapshot() { void api.snapshot().then(setData).catch(() => setError('network')); }
   async function run(action: () => Promise<void>) {
     if (busy) return;
     setBusy(true); setError(''); setNotice('');
@@ -132,7 +141,7 @@ export default function StudentWorkspace({ lang }: { lang: string }) {
       <button disabled={busy} onClick={() => setEditor({ kind, action: 'rename', id: item.id, name: item.name })}>{t('rename')}</button>
       {item.status === 'active' && <button disabled={busy} onClick={() => setEditor({ kind, action: 'archive', id: item.id })}>{t('archive')}</button>}
       {kind === 'semester' && item.status === 'active' && !(item as Semester).isActive && <button disabled={busy} onClick={() => void run(async () => { await api.mutate(`semesters/${item.id}`, 'PATCH', { action: 'activate' }); })}>{t('activate')}</button>}
-      {kind === 'course' && <button disabled={busy || courseMaterials === null || courseMaterials.length > 0} onClick={() => setEditor({ kind, action: 'delete', id: item.id })}>{t('delete')}</button>}
+      {kind === 'course' && <button disabled={busy || !!(item as Course).hasData || courseMaterials === null || courseMaterials.length > 0} onClick={() => setEditor({ kind, action: 'delete', id: item.id })}>{t('delete')}</button>}
     </div>;
   }
   function materialList(items: Material[]) {
@@ -171,8 +180,9 @@ export default function StudentWorkspace({ lang }: { lang: string }) {
       <a className="student-brand" href={officeHref}>◈ {t('office')}</a>
       <p className="student-eyebrow">{t('title')}</p>
       <nav aria-label={t('title')}>
-        <button aria-current={view === 'today' ? 'page' : undefined} onClick={() => setView('today')}>{t('today')}</button>
-        <button aria-current={view === 'academic' ? 'page' : undefined} onClick={() => setView('academic')}>{t('academic')}</button>
+        <button aria-current={view === 'today' ? 'page' : undefined} onClick={() => chooseView('today')}>{t('today')}</button>
+        <button aria-current={view === 'academic' ? 'page' : undefined} onClick={() => chooseView('academic')}>{t('academic')}</button>
+        <button aria-current={view === 'memory' ? 'page' : undefined} onClick={() => chooseView('memory')}>{t('memory.global')}</button>
         <a href={officeHref}>{t('projects')}</a>
       </nav>
       <div className="student-sidebar-section">
@@ -191,10 +201,10 @@ export default function StudentWorkspace({ lang }: { lang: string }) {
       <div className="student-course-links">{courses.map((item) => <button key={item.id} aria-current={view === 'academic' && courseId === item.id ? 'page' : undefined} onClick={() => chooseCourse(item)}><span>{item.name}</span><small>{item.code || t(`status.${item.status}`)}</small></button>)}</div>
     </aside>
     <main className="student-main" aria-busy={busy}>
-      <header className="student-page-heading"><div><p className="student-eyebrow">{t('title')}</p><h1>{view === 'today' ? t('today') : course?.name || semester?.name || t('academic')}</h1><p>{view === 'today' ? t('subtitle') : course?.code || semester?.academicYear}</p></div><a href={officeHref}>{t('office')} ↗</a></header>
+      <header className="student-page-heading"><div><p className="student-eyebrow">{t('title')}</p><h1>{view === 'memory' ? t('memory.global') : view === 'today' ? t('today') : course?.name || semester?.name || t('academic')}</h1><p>{view === 'memory' ? t('memory.globalHint') : view === 'today' ? t('subtitle') : course?.code || semester?.academicYear}</p></div><a href={officeHref}>{t('office')} ↗</a></header>
       {error && <div role="alert" className="student-error">{t(`errors.${error}`)} <button onClick={() => window.location.reload()}>{t('retry')}</button></div>}
       <div role="status" className="student-notice">{busy ? t('working') : notice ? t(notice) : ''}</div>
-      {!data ? <p>{t('loading')}</p> : view === 'today' ? <>
+      {!data ? <p>{t('loading')}</p> : view === 'memory' ? <section className="student-panel"><MemoryWorkspace lang={lang} target={{ scope: 'global' }} /></section> : view === 'today' ? <>
         <section className="student-hero"><p className="student-eyebrow">{t('activeSemester')}</p><h2>{current?.name || t('noActive')}</h2><p>{current?.academicYear || t('todayHint')}</p>
           <button className="student-primary" onClick={() => current ? chooseSemester(current.id) : setEditor({ kind: 'semester', action: 'create' })}>{current ? t('academic') : t('createSemester')} →</button>
         </section>
@@ -209,7 +219,7 @@ export default function StudentWorkspace({ lang }: { lang: string }) {
         </> : <>
           <button className="student-breadcrumb" onClick={() => chooseSemester(semester.id)}>← {semester.name}</button>
           {actions('course', course)}
-          <div className="student-tabs" role="group" aria-label={course.name}>{(['overview', 'materials', 'chat', 'progress'] as Tab[]).map((item) => <button key={item} aria-pressed={tab === item} onClick={() => chooseTab(item)}>{t(item)}</button>)}</div>
+          <div className="student-tabs" role="group" aria-label={course.name}>{(['overview', 'materials', 'chat', 'memory', 'progress'] as Tab[]).map((item) => <button key={item} aria-pressed={tab === item} onClick={() => chooseTab(item)}>{t(item === 'memory' ? 'memory.tab' : item)}</button>)}</div>
           <section className="student-panel">
             {course.status === 'archived' && <p className="student-archive-note">{t('archivedHint')}</p>}
             {tab === 'overview' && <><h2>{course.name}</h2><p>{course.description || t('selectCourse')}</p><p>{t('semester')}: {semester.name} · {semester.academicYear}</p><p>{t(`status.${course.status}`)}</p><button onClick={() => setTab('materials')}>{t('materials')} →</button></>}
@@ -274,7 +284,8 @@ export default function StudentWorkspace({ lang }: { lang: string }) {
                 )}
               </div>
             </>}
-            {tab === 'chat' && <CourseChat key={course.id} courseId={course.id} lang={lang} hasReadyMaterials={!!courseMaterials?.some((item) => item.status === 'ready')} />}
+            {tab === 'chat' && <CourseChat key={course.id} courseId={course.id} lang={lang} hasReadyMaterials={!!courseMaterials?.some((item) => item.status === 'ready')} onMemoryChange={refreshSnapshot} />}
+            {tab === 'memory' && <MemoryWorkspace key={course.id} lang={lang} target={{ scope: 'course', courseId: course.id }} onChange={refreshSnapshot} />}
             {tab === 'progress' && <p>{t('progressPending')}</p>}
           </section>
         </>}

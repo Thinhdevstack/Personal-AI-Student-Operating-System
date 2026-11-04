@@ -1,6 +1,6 @@
 # Personal AI Student OS — khảo sát và kế hoạch
 
-Khảo sát trên commit `5c1e7bf`. Chỉ triển khai Milestone 1 trong lượt này.
+Khảo sát gốc trên commit `5c1e7bf`. Các mục kiến trúc ban đầu ghi lại baseline M1; cập nhật triển khai M3 và M4 ở mục 10–11. Hiện M1–M3 đã có trong lịch sử Git; M4 được triển khai local, M5 chưa làm. Runtime hiện yêu cầu Node >=22 và đã có OpenAI SDK/PDF.js.
 
 ## 1. Kiến trúc thực tế
 
@@ -225,3 +225,53 @@ Một conversation cho mỗi course. Turn reservation trong SQLite transaction i
 - `npm run smoke`: đạt trên Windows (server/page/hook/machine panel/installer dùng settings tạm).
 - Static export tiếng Việt `/my-office/vi`: đạt từ bản copy source trong `data/tooling/m3-static`, không đụng artifacts production/E2E đang phục vụ. `/student` static vẫn giải thích cần server local.
 - Live OpenAI: chưa chạy vì không có key. Cần kiểm tra một câu hỏi thật sau khi cấu hình key và process PDF bằng embeddings thật; không dùng kết quả offline để khẳng định chất lượng Tutor hoặc semantic search.
+
+## 11. Milestone 4 — Memory V1
+
+### Baseline và phạm vi
+
+Baseline M3 `51e2f61` sạch, `feat/course-chat-m3` trùng tracking origin; main local ở `110793b`. 10 test M3 đạt trước triển khai. Tạo `feat/memory-m4` từ M3, không merge/commit/push theo yêu cầu. Loader env xác nhận chưa có API key nên không chạy live OpenAI. Không thêm dependency hoặc thay đổi API/model của provider.
+
+M1: học kỳ/môn/PDF và persistence; M2: extraction/chunks/embeddings/retrieval; M3: scoped Tutor/citations/history/retry; M4: bộ nhớ chủ động. M5 Office adapter và learning progress chưa triển khai.
+
+### Schema và API
+
+- Migration mới `004-memory.sql`, không sửa migration cũ: `memories`, `memory_create_requests`, thêm JSON `chat_messages.memories` mặc định `[]` cho lịch sử cũ.
+- Memory gồm id, scope, courseId, content, timestamps và optional sourceMessageId/sourceCourseId. Scope global bắt buộc courseId null; scope course bắt buộc courseId hợp lệ. FK/CHECK và triggers kiểm tra nguồn chat hoàn tất, thuộc đúng course; global từ chat vẫn giữ course nguồn, chỉ được tạo khi người dùng chọn global rõ.
+- Tối đa 1.000 ký tự/note, 50 global, 100/course; payload HTTP tối đa 16 KiB như API Student. Course có memory hoặc được memory tham chiếu làm nguồn được bảo vệ khỏi delete-empty. Snapshot có `hasData` để UI vô hiệu hóa nút xóa.
+- API đọc/sửa/xóa luôn có query `scope=global` hoặc `scope=course&courseId=<uuid>`; scope khác không sửa/xóa được memory. Scope/source là bất biến qua API edit.
+
+| Method | Path | Payload/kết quả |
+| --- | --- | --- |
+| GET | `/api/student/memories?scope=...` | Danh sách đúng scope, mới nhất trước |
+| POST | `/api/student/memories` | `{scope, courseId?, content, requestId, sourceMessageId?, sourceCourseId?}` |
+| PATCH | `/api/student/memories/:id?scope=...` | `{content}` |
+| DELETE | `/api/student/memories/:id?scope=...` | `{ok:true}`; lặp lại an toàn |
+
+Reuse auth/host/same-origin guard. Create transaction immediate + UUID requestId/fingerprint chống double-click/retry qua nhiều connection. Cùng mã với payload khác báo conflict; retry sau edit không ghi đè nội dung mới; retry sau delete không hồi sinh note. Nội dung trùng trong cùng scope sau chuẩn hóa Unicode/khoảng trắng/chữ hoa trả note đã có; edit trùng báo lỗi. Receipts giữ ID và hash, không giữ nội dung; chưa có TTL/compaction nên tăng theo số lần lưu. Archive giữ notes; quản lý và chọn memory chỉ khi mở đích danh course, không có tác vụ tự chọn môn archived.
+
+### Chọn memory và context
+
+`server/ai/memory.mjs` quản lý CRUD và ranking. Global preferences luôn là ứng viên về cách học: tối đa hai, ưu tiên overlap rồi updatedAt/id. Course notes chỉ từ đúng course và cần ít nhất một token nội dung khớp câu hỏi; follow-up ngắn dùng thêm câu hỏi user trước như retrieval M3. Tokenizer chuẩn hóa dấu tiếng Việt, loại stop words en/vi. Đây là heuristic lexical, không hiểu từ đồng nghĩa, ngữ nghĩa hay dịch ngôn ngữ.
+
+Tối đa sáu notes, 3.000 ký tự nội dung; giữ nguyên từng note để không cắt mất phủ định. Context builder lọc lại scope và giới hạn, rồi loại bớt notes cuối nếu serialized context vượt 28.000 ký tự. Nếu baseline question/history/PDF đã vượt giới hạn thì vẫn báo lỗi M3. Memory là untrusted data trong user payload, không nằm trong system instructions; không được ghi đè system/UI language, không có tools và không được coi là PDF evidence.
+
+Chat lưu snapshot `{id, scope, courseId, content, updatedAt}` đúng tập thực sự đưa vào context tại thời điểm request. Backend không tự tuyên bố model đã sử dụng/tôn trọng từng note; UI ghi rõ “Bộ nhớ đã gửi cho trợ giảng”. Snapshot không tạo document citation. Sửa/xóa ảnh hưởng chọn note ở lần hỏi sau; chat cũ và snapshot giữ nguyên. Nội dung note có thể vẫn được nhắc trong answer cũ thuộc bounded history; xóa memory không xóa chat.
+
+### UI và file
+
+- `src/features/ai/MemoryWorkspace.tsx`: CRUD, modal có native focus containment, scope label, xác nhận xóa, giới hạn và error/retry. Create giữ request ID khi retry nguyên payload; thay nội dung/phạm vi tạo ID mới.
+- Sidebar “Sở thích chung” (`?view=memory`); tab “Bộ nhớ” trong course (`?course=...&tab=memory`), giữ đúng view khi refresh.
+- `CourseChat.tsx`: nút lưu từ completed message, review/edit form mặc định course; snapshot được hiển thị riêng PDF sources. React escape plain text; hỗ trợ en/vi và mobile.
+- File server sửa: database registration, service CRUD/hasData/delete-empty, routes, context và chat persistence. File client sửa: workspace, types/API, dictionary en/vi, CSS. Không sửa 3D engine hoặc legacy `/api/chat`.
+- Tests mới `tests/unit/student-m4.test.mjs`; E2E thêm vào `tests/e2e/student.spec.ts`.
+
+### Kiểm tra M4
+
+- `npm test`: 179 tests, 176 đạt, 3 skip có sẵn trên Windows, không lỗi. Tám test M4 kiểm tra CRUD/persistence, idempotency qua nhiều connection, validation/DB constraints, source ownership, ranking/budget/archive, chat snapshots, nâng cấp DB M3 và HTTP auth/origin/scope. Sau điều chỉnh cuối, chạy lại tám test M4 vẫn đạt.
+- `npm run typecheck`: đạt sau khi khôi phục tsconfig gốc (Next build riêng tự thêm generated include, không đưa thay đổi đó vào bàn giao).
+- `npm run lint`: đạt; lint lại các file thay đổi cuối đạt.
+- `npm run build`: đạt cả output kiểm tra `.next-e2e` và production mặc định `.next`; không có server dùng artifacts đó trong lúc build.
+- Playwright: 9 kịch bản Student/Office đạt qua lượt smoke và lượt chạy lại sau sửa. Năm Office smoke đạt; ba Student M1–M3 đạt cả trên production cuối; M4 E2E riêng đạt sau khi sửa label ô nội dung điền sẵn và cho test chờ history load trước khi đếm turns. Luồng bao gồm mất response khi save rồi retry không trùng, lưu từ chat đúng scope, edit/delete tác động context mới, snapshot cũ giữ nguyên, global dùng giữa hai môn và course isolation.
+- Đã xem screenshot chat desktop, trang Memory và modal edit tiếng Việt 390px; không tràn ngang, không có uncaught page error. Các QA server đã dừng. Artifacts/logs chỉ ở thư mục ignored.
+- Live OpenAI: chưa kiểm chứng vì không có key. Test chỉ chứng minh luồng chọn/truyền/lưu memory với injected/offline provider, không khẳng định chất lượng câu trả lời hoặc khả năng model thật tuân theo memory.
