@@ -9,6 +9,7 @@ import '@/styles/topbar.css';
 import '@/styles/topbar-plan.css';
 import '@/styles/sidebars.css';
 import '@/styles/activity.css';
+import '@/styles/student-office.css';
 import '@/styles/sessions.css';
 import '@/styles/streamer.css';
 import '@/styles/permissions.css';

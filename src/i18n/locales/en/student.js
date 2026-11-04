@@ -25,6 +25,12 @@ export default {
     basis: { materials: 'Based on retrieved course excerpts', general: 'General knowledge — not supported by the retrieved course excerpts', insufficient: 'Insufficient evidence from course materials' },
   },
   reprocess: 'Reprocess',
+  officeActivity: {
+    title: 'Student Tutor', tutor: 'Student Tutor', name: 'Tutor · {course}', open: 'Open Office in another tab to watch your tutor',
+    turn: 'Preparing the tutor', library: { search: 'Finding course materials' }, memory: { search: 'Selecting saved memory' }, ai: { respond: 'Preparing an answer' },
+    completed: 'Answer saved', failed: 'Could not complete this question', interrupted: 'Response interrupted', unknown: 'Activity status unavailable', offline: 'Simulated',
+    recent: 'Recent activity: {activity}', step: { started: 'Working', completed: 'Done', failed: 'Failed', interrupted: 'Interrupted' },
+  },
   memory: {
     tab: 'Memory', global: 'Global preferences', course: 'Course memory', scope: 'Save scope',
     create: 'Add memory', edit: 'Edit memory', delete: 'Delete memory', content: 'Memory content',

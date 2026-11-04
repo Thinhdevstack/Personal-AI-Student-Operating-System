@@ -106,6 +106,7 @@ import * as uiCacheWords from './ui/cache-words.js';
 import * as uiTips from './ui/tips.js';
 import * as interactFirstPerson from './interact/first-person.js';
 import * as netLive from './net/live.js';
+import * as peopleStudentTutors from './people/student-tutors.js';
 import * as lifeYourTurn from './life/your-turn.js';
 import * as lifeIncidents from './life/incidents.js';
 import * as audioSfx from './audio/sfx.js';
@@ -226,6 +227,7 @@ const MODULES = [
   uiTips,
   interactFirstPerson,
   netLive,
+  peopleStudentTutors,
   lifeYourTurn,
   lifeIncidents,
   audioSfx,

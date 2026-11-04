@@ -1,6 +1,6 @@
 # Personal AI Student OS — khảo sát và kế hoạch
 
-Khảo sát gốc trên commit `5c1e7bf`. Các mục kiến trúc ban đầu ghi lại baseline M1; cập nhật triển khai M3 và M4 ở mục 10–11. Hiện M1–M3 đã có trong lịch sử Git; M4 được triển khai local, M5 chưa làm. Runtime hiện yêu cầu Node >=22 và đã có OpenAI SDK/PDF.js.
+Khảo sát gốc trên commit `5c1e7bf`. Các mục kiến trúc ban đầu ghi lại baseline M1; cập nhật triển khai M3–M5 ở mục 10–12. M1–M4 đã có trong lịch sử Git; M5 được triển khai local. Runtime hiện yêu cầu Node >=22 và đã có OpenAI SDK/PDF.js.
 
 ## 1. Kiến trúc thực tế
 
@@ -275,3 +275,45 @@ Chat lưu snapshot `{id, scope, courseId, content, updatedAt}` đúng tập th�
 - Playwright: 9 kịch bản Student/Office đạt qua lượt smoke và lượt chạy lại sau sửa. Năm Office smoke đạt; ba Student M1–M3 đạt cả trên production cuối; M4 E2E riêng đạt sau khi sửa label ô nội dung điền sẵn và cho test chờ history load trước khi đếm turns. Luồng bao gồm mất response khi save rồi retry không trùng, lưu từ chat đúng scope, edit/delete tác động context mới, snapshot cũ giữ nguyên, global dùng giữa hai môn và course isolation.
 - Đã xem screenshot chat desktop, trang Memory và modal edit tiếng Việt 390px; không tràn ngang, không có uncaught page error. Các QA server đã dừng. Artifacts/logs chỉ ở thư mục ignored.
 - Live OpenAI: chưa kiểm chứng vì không có key. Test chỉ chứng minh luồng chọn/truyền/lưu memory với injected/offline provider, không khẳng định chất lượng câu trả lời hoặc khả năng model thật tuân theo memory.
+
+## 12. Milestone 5 — Student Office adapter
+
+### Baseline và kiến trúc
+
+Baseline `c12ff6b` chứa đầy đủ M4, local/tracking `feat/memory-m4` đồng nhất, working tree sạch. Main local vẫn ở `110793b`, chưa gộp M3/M4. Tạo `feat/office-adapter-m5`; không commit/push/merge. 18 test M3/M4 đạt trước triển khai. Env loader xác nhận chưa có API key nên không chạy OpenAI thật.
+
+Office truyền session qua `/stream` và `/api/live`, cùng auth/PIN/host protection. Client nhận message trong `demo/demo.js`; `net/live.js` giữ mapping session/desks. Không dùng mapping đó cho Student. M5 reuse transport, Worker/chibi rig và walking graph, nhưng Tutor nằm trong registry riêng, ID `student:tutor:<courseId>`, không thêm session/NPC, giả hook Claude, đổi thống kê hay group chat.
+
+Luồng: chat DB reservation → activity hub → SSE/long poll → runtime validation/reducer → Student adapter → actor 3D. Không có API mới, dependency mới hoặc migration M5. Business logic vẫn ở server; render loop chỉ cập nhật actor/animation.
+
+### Contract và lifecycle
+
+- `src/shared/office-events.js` + `.d.ts`: version 1, operation `turn`, `library.search`, `memory.search`, `ai.respond`; status started/completed/failed/interrupted. Strict validation ở cả hub và client.
+- Event gồm eventId, server epoch UUID, sequence, timestamp, courseId/name, requestId, turnId, attemptId, isMock và optional count cho bước tìm/chọn đã hoàn tất.
+- Không phát câu hỏi, answer, PDF excerpt/name/path, nội dung memory, API key/token hoặc raw provider errors. Course name được giới hạn và bỏ control characters; UI dùng textContent, không render HTML.
+- `server/student/activity.mjs`: hub ephemeral có allow-list payload và subscriber isolation sync/async. Chat vẫn chạy khi hub/emitter/subscriber lỗi. `server/index.mjs` chỉ subscribe broadcast `{k:'student',event}` và thêm `student` vào live snapshot; không thêm Student vào persisted replay log.
+- `chat.mjs`: chỉ begin sau khi claim lượt mới/retry thành công. Retrieval và memory/context có boundary thật; count memory là tập thực sự đưa vào context. AI completion và turn completion chỉ phát sau transaction lưu answer/sources/memory snapshots. Completed request replay không phát lại activity. Lỗi phát failed; stale worker không được ghi đè attempt mới.
+- Hub giữ tối đa 32 course mới nhất. Thiếu kết thúc quá 120 giây từ event cuối chuyển interrupted qua sweep 10 giây. Terminal giữ 180 giây rồi xóa. Restart tạo epoch mới, xóa state hình ảnh; lịch sử chat trong SQLite vẫn theo lease/retry M3.
+
+### Adapter, reconnect và actor
+
+- `src/office/adapters/student-events.js`: state machine độc lập DOM/Three, kiểm tra epoch/sequence theo course/attempt, bỏ duplicate và stale updates. Snapshot thiết lập epoch, resync hiện trạng; không xếp hàng lại các bước cũ đã completed.
+- Tối đa bốn actor mới nhất. Mỗi actor xếp tối đa ba bước live; từng bước chờ đến đích rồi giữ pose ngắn. Tổng sequence tối đa 30 giây. Khi frame chậm, mỗi đoạn đi tối đa tám giây rồi đặt actor đến đích để các pose sau vẫn xuất hiện. Không delay backend.
+- `people/student-tutors.js`: Worker không chạy Claude daily-life planner; chiếm study spot còn trống ở bàn họp. Tìm tài liệu: library/read; memory: cùng thư viện/think vì chưa có phòng Memory riêng; AI: về study spot/type. Library hết chỗ thì làm tại study spot. Bàn họp hết chỗ thì chưa tạo actor, không chiếm chỗ nhân vật khác hoặc tạo rig liên tục.
+- Actual outcome trong panel được cập nhật ngay. Animation đến sau được gọi rõ là hoạt động vừa diễn ra, không báo backend vẫn đang bận. Terminal/failed/interrupted về idle; snapshot completed về idle ngay. Giữ look switch, render budget và reduced motion; không mount engine vào Student React.
+- Disconnect: dừng queue/đi bộ, active trở thành unknown. Reconnect chờ snapshot trước khi tiếp tục; long polling lỗi reset cursor để xin snapshot. Client có timeout 150 giây nếu thiếu cập nhật; actor/state cũ được dọn sau thời gian giữ. pagehide giải phóng rig/labels/spots; bfcache reload để dựng lại connection sạch. Replay tắt actor; static/`?demo` không tạo Student adapter.
+- Upper-right Office link trong Student mở tab mới, giữ auth/lang theo cơ chế navigation hiện có. Panel/bubbles en/vi, nội dung snapshot không thay đổi UI nghiệp vụ M1–M4. Empty overlay “chưa có Claude” ẩn khi có Student actor.
+
+### File và kiểm tra
+
+File mới: contract JS/types, `server/student/activity.mjs`, adapter, `people/student-tutors.js`, `src/styles/student-office.css`, `tests/unit/student-m5.test.mjs`, `tests/e2e/student-office.spec.ts`. Điểm nối nhỏ ở server service/chat/index, Office bootstrap/demo transport/loop/look switch, app layout, Student link và dictionaries en/vi.
+
+`docs/ARCHITECTURE.md` cập nhật module map. Generator normalize CRLF trước khi parse/compare để `--check` cho cùng kết quả Windows/Linux, không tạo diff giả toàn bảng.
+
+- `npm run typecheck`, `npm run lint`: đạt. Lint lại các file sửa cuối cũng đạt. `node scripts/module-map.mjs --check`: đạt.
+- `npm test` cuối khi đã dừng browser QA: 189 tests, 186 đạt, 3 skip có sẵn trên Windows, 0 lỗi. Mười test M5 bao gồm contract/privacy, lifecycle/commit/replay, failure/retry, subscriber isolation, TTL/bounds, adapter ordering/reconnect/restart/timeout/slow travel và HTTP guards. Một lượt chạy cùng renderer phần mềm có sáu lỗi timing ở các test hook/account cũ; chạy lại nguyên bộ không tải browser thì đạt, không sửa các test/nghiệp vụ cũ đó.
+- `npm run build`: đạt cả `.next-e2e` và production `.next`. Static export cả en `/my-office` và vi `/my-office/vi` đạt từ copy source `data/tooling/m5-static`, không ghi đè build đang được server dùng.
+- Playwright: chín smoke M1–M4/Office đạt; M5 hai tab đạt sau sửa travel bound, rồi chạy lại trên production cuối đạt. Kiểm tra actual scene actor/position/animation queue/idle, state lỗi/retry, attempt isolation, metadata không chứa nội dung riêng tư, completed replay không phát event, refresh không replay, cozy và pro/tiếng Việt. Đã xem screenshot bản production; overlay “chưa có Claude” không che Tutor. Không có uncaught page error.
+- QA server đã dừng; logs/builds/screenshots/data thử nằm trong ignored folders. Không có key nên chưa smoke test OpenAI thật. Test offline chỉ xác minh luồng, không xác nhận chất lượng model hoặc semantic retrieval.
+
+M1–M5 là roadmap MVP hiện tại; không có planner, quiz, learning-progress hay multi-user ownership. M5 chưa commit/push/merge. Để chốt: cấu hình key và reprocess PDF offline sang embeddings thật, kiểm tra một câu hỏi/live activity thật; review/commit/push M5, sau đó tích hợp các nhánh có M3/M4/M5 vào main và kiểm tra trên main.

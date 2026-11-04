@@ -2421,6 +2421,7 @@ async function openFolder(dir) {
 }
 
 const student = createStudentService(path.join(DATA_DIR, 'student'));
+student.activity.subscribe((event) => broadcast({ k: 'student', event }));
 process.once('exit', () => student.close());
 const studentRoutes = createStudentRoutes({ service: student, authorized, sameOrigin: sameOriginOf });
 
@@ -2987,7 +2988,7 @@ const server = http.createServer((req, res) => {
   // everything as it is now, the first message a page gets (the Mac's own addresses and PIN only for the Mac)
   const snapNow = (local) => {
     const lanOn = lanIsOn();
-    return { k: 'snap', lang: prefs.lang(), sessions: [...sessions.values()].map(pub), perms: [...pending.values()].map(permPub), feed, stats, local, todos, limits: limitsOut(), limitsNote: noteText(), ai: aiOut(), trophies: trophies.pub(),
+    return { k: 'snap', student: student.activity.snapshot(), lang: prefs.lang(), sessions: [...sessions.values()].map(pub), perms: [...pending.values()].map(permPub), feed, stats, local, todos, limits: limitsOut(), limitsNote: noteText(), ai: aiOut(), trophies: trophies.pub(),
       lan: local && lanOn ? lanUrl() : null, lanBase: local && lanOn ? lanUrl(false) : null, pin: local ? currentPin() : null,
       ts: local && lanOn ? tsUrl() : null, tsHere: !!tsUrl(), phoneApprove: !!prefs.get('phoneApprove'), phoneTasks: !!prefs.get('phoneTasks'), lanFixed: local && lanFixed, build: BUILD, lift: liftService.pub() };
   };

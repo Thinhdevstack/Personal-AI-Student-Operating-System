@@ -4,6 +4,7 @@ import { scene } from '../scene/renderer.js';
 import { leaving, npcs, subs, workers } from '../people/workers.js';
 import { fp, makeAvatar } from '../interact/first-person.js';
 import { disposeChibi } from '../people/chibi-rig.js';
+import { rebuildStudentTutors } from '../people/student-tutors.js';
 
 /* ---------- character look (A / B) ---------- */
 export function setLook(l) {
@@ -12,6 +13,7 @@ export function setLook(l) {
   try { localStorage.setItem('office-look', l); } catch { /* storage blocked */ }
   for (const b of document.querySelectorAll('[data-look]')) b.setAttribute('aria-pressed', String(b.dataset.look === l));
   for (const w of [...workers.values(), ...subs.values(), ...leaving, ...npcs]) w.rebuild();
+  rebuildStudentTutors();
   if (fp.avatar) {   // (its name tag is a page element of its own: taken off the page too)
     scene.remove(fp.avatar); fp.tag?.element?.remove(); disposeChibi(fp.P); fp.avatar = null; makeAvatar();
   }

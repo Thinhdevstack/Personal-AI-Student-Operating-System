@@ -7,6 +7,7 @@ import { createOpenAIProvider } from '../ai/openai.mjs';
 import { searchCourseMaterials } from '../ai/retrieval.mjs';
 import { createCourseChat } from '../ai/chat.mjs';
 import { createMemoryService } from '../ai/memory.mjs';
+import { createStudentActivity } from './activity.mjs';
 
 function text(value, max, required = false) {
   if (value === undefined && !required) return '';
@@ -25,7 +26,8 @@ export function createStudentService(dir, options = {}) {
   const db = openStudentDatabase(dir), storage = documentStorage(dir);
   const aiProvider = options.aiProvider || createOpenAIProvider();
   const memory = createMemoryService({ db });
-  const chat = createCourseChat({ db, aiProvider, memory });
+  const activity = options.activity || createStudentActivity();
+  const chat = createCourseChat({ db, aiProvider, memory, activity });
 
   function semester(id) {
     const row = db.prepare('SELECT * FROM semesters WHERE id = ?').get(id);
@@ -53,7 +55,8 @@ export function createStudentService(dir, options = {}) {
   }
 
   return {
-    close: () => db.close(),
+    close: () => { db.close(); if (!options.activity) activity.close(); },
+    activity,
     get db() { return db; },
     get aiProvider() { return aiProvider; },
     chatHistory: chat.history,

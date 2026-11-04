@@ -25,6 +25,12 @@ export default {
     basis: { materials: 'Dựa trên các đoạn tài liệu đã tìm thấy', general: 'Kiến thức chung — chưa được các đoạn tài liệu tìm thấy xác nhận', insufficient: 'Chưa đủ căn cứ từ tài liệu môn học' },
   },
   reprocess: 'Xử lý lại',
+  officeActivity: {
+    title: 'Trợ giảng học tập', tutor: 'Trợ giảng học tập', name: 'Trợ giảng · {course}', open: 'Mở Office ở tab khác để xem trợ giảng làm việc',
+    turn: 'Đang chuẩn bị trợ giảng', library: { search: 'Đang tìm tài liệu môn học' }, memory: { search: 'Đang chọn bộ nhớ đã lưu' }, ai: { respond: 'Đang chuẩn bị câu trả lời' },
+    completed: 'Đã lưu câu trả lời', failed: 'Chưa hoàn tất câu hỏi này', interrupted: 'Phản hồi bị gián đoạn', unknown: 'Chưa xác định được trạng thái', offline: 'Mô phỏng',
+    recent: 'Hoạt động vừa diễn ra: {activity}', step: { started: 'Đang làm', completed: 'Xong', failed: 'Lỗi', interrupted: 'Gián đoạn' },
+  },
   memory: {
     tab: 'Bộ nhớ', global: 'Sở thích chung', course: 'Bộ nhớ môn học', scope: 'Phạm vi lưu',
     create: 'Thêm bộ nhớ', edit: 'Sửa bộ nhớ', delete: 'Xóa bộ nhớ', content: 'Nội dung bộ nhớ',

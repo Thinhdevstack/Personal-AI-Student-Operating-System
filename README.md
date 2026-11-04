@@ -24,7 +24,7 @@ open <http://localhost:4310/?demo>. Or try it online, nothing to install: <https
 
 ## Quick start
 
-### Student Workspace, Course Tutor and Memory (Milestone 4)
+### Student Workspace, Tutor, Memory and Office activity (Milestone 5)
 
 Open `http://localhost:4310/student` after starting the local server (`npm run dev`, or `npm run build` then `npm start`).
 The office remains at `/`; its Academic link opens the workspace. Claude Code and an OpenAI key are not needed for
@@ -54,7 +54,11 @@ Each course has one conversation in this MVP, with its latest 40 turns displayed
 
 Each note allows 1,000 characters, with up to 50 global preferences and 100 notes per course. Each question can include up to two global preferences plus relevant notes from its own course, capped at six notes and 3,000 content characters within the existing total context limit. Course selection uses lexical overlap with Vietnamese accent normalization, not semantic memory search; synonyms and mixed languages can miss matches. Global preferences use relevance then recency. Memory shown under an answer is a snapshot of notes sent to the tutor, separate from PDF evidence; it does not prove the model followed those notes. Selected memories are sent to OpenAI with the question, just like selected excerpts. Deleted notes stop being selected; old answers may still discuss them in the bounded conversation history.
 
-M1–M3 functionality is implemented and M4 adds explicit memory. M5's Student-to-3D event adapter remains unimplemented. Automated checks use a controlled offline provider; live OpenAI integration and the quality of memory-guided answers have not been verified in this workspace because no API key is configured. M4 work remains local on `feat/memory-m4` until you commit/push it.
+**Watch your tutor in the Office:** open `/` in one tab and `/student` in another. The workspace's upper-right Office link opens a separate tab. Send a course question: an independent Student Tutor visits the library to find material and select memory, then returns to a study spot at the meeting table to prepare the answer. The Student Tutor panel shows the current outcome and phase counts; PDF/memory contents and your question are not broadcast. `?demo` and the static demo do not subscribe to Student activity.
+
+Activity reuses the authenticated Office SSE stream and its long-poll fallback. At most four recent course tutors are displayed; study spots are shared with existing furniture and a full meeting area can temporarily prevent a tutor appearing. Fast steps can finish before their short visual sequence; the panel shows the actual saved/failed outcome immediately and bubbles label subsequent movement as recent activity. Slow travel is bounded at eight seconds per leg, the whole visual sequence at 30 seconds; reduced motion places the tutor directly. Reopening or reconnecting restores the current state without replaying old completed work. A lost connection clears busy movement; missing terminal events become interrupted/unknown. Activity metadata is ephemeral, bounded to 32 courses and expires a few minutes after completion; it is not learning progress or a persisted activity journal. Chat, documents and memory remain in SQLite.
+
+M1–M5 of the current roadmap are implemented. M4 is committed as `c12ff6b`; M5 remains local on `feat/office-adapter-m5` until you commit/push it. Automated checks use a controlled offline provider; live OpenAI integration and model quality have not been verified in this workspace because no API key is configured. Before closing the roadmap, run a small live test after configuring a key and reprocessing offline PDFs, then review and integrate the feature branches into `main`. Learning progress, planner and quiz features are outside this roadmap.
 
 You need Node.js 22 or newer and Claude Code for session visualization, on macOS, Linux or Windows. The machine panel (RAM, CPU, disk, dev
 servers, cleanup) reads each system its own way; opening a session's IDE window and quitting apps are macOS only.

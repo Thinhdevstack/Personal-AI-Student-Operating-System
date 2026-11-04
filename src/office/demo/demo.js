@@ -19,6 +19,7 @@ import { summarize } from '../../shared/burn.js';
 import { setTenure } from '../people/farewell.js';
 import { logLine } from './demo-log.js';
 import { t as tr } from '../../i18n/index.js';
+import { studentMessage, studentConnection } from '../people/student-tutors.js';
 
 export let DEMO;
 // The fictional projects. Paths, search terms and commands are the same in every language; what people write (prompts,
@@ -226,6 +227,7 @@ function reloadSoon() {
   location.reload();
 }
 export function applyMsg(d, quiet = false) {
+  if (!quiet && !replay.on) studentMessage(d);
   if (d.k === 'snap' || d.k === 'lang') {   // the office's language changed while this page was open: load it again in the new one
     if (d.lang && d.lang !== document.documentElement.lang && !new URLSearchParams(location.search).has('lang')) { location.reload(); return; }
     if (d.k === 'lang') return;
@@ -295,11 +297,11 @@ function ask() {
         const r = await fetch(`/api/live?since=${since}`, { cache: 'no-store', signal: stop.signal });
         if (r.status === 401) { location.reload(); return; }   // (signed out: back to the PIN)
         const j = await r.json();
-        fails = 0; setConn(true); since = j.seq;
+        fails = 0; setConn(true); studentConnection(true); since = j.seq;
         if (!replay.on) for (const d of j.msgs) applyMsg(d);
       } catch {
         if (stop.signal.aborted) return;
-        setConn(false); await new Promise((ok) => setTimeout(ok, Math.min(15_000, 1000 * 2 ** fails++)));
+        setConn(false); studentConnection(false); since = -1; await new Promise((ok) => setTimeout(ok, Math.min(15_000, 1000 * 2 ** fails++)));
       }
     }
   })();
@@ -308,8 +310,8 @@ export function connect() {
   if (VIA_TUNNEL) { ask(); return; }
   const es = new EventSource(`/stream${TOKEN ? `?k=${encodeURIComponent(TOKEN)}` : ''}`);
   liveES = es;
-  es.onopen = () => setConn(true);
-  es.onerror = () => setConn(false);
+  es.onopen = () => { setConn(true); studentConnection(true); };
+  es.onerror = () => { setConn(false); studentConnection(false); };
   es.onmessage = (m) => {
     if (replay.on) return;
     let d; try { d = JSON.parse(m.data); } catch { return; }

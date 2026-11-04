@@ -51,6 +51,7 @@ import { THEME } from '../world/backdrops/index.js';
 import { drawFrame, onQualityChange, phoneLike, quality, stepDown } from '../scene/quality.js';
 import { toast } from '../ui/activity.js';
 import { t as tr } from '../../i18n/index.js';
+import { studentWalking, updateStudentTutors } from '../people/student-tutors.js';
 
 export let focusTarget;
 const clock = new THREE.Clock();
@@ -63,7 +64,7 @@ const clock = new THREE.Clock();
 // walks, else every fourth.
 let lastFrame = 0, lastInput = 0, frameNo = 0;
 const _camDelta = new THREE.Vector3();
-const walkingNow = () => { for (const w of workers.values()) if (w.phase === 'walk') return true; for (const w of subs.values()) if (w.phase === 'walk') return true; for (const w of npcs) if (w.phase === 'walk') return true; return leaving.size > 0 || flights.length > 0; };
+const walkingNow = () => { for (const w of workers.values()) if (w.phase === 'walk') return true; for (const w of subs.values()) if (w.phase === 'walk') return true; for (const w of npcs) if (w.phase === 'walk') return true; return studentWalking() || leaving.size > 0 || flights.length > 0; };
 function frameGap(now) {
   if (SOFTWARE_GL) return 1000 / 5;
   if (state.covered) return 1000 / 2;   // (a phone's full-screen sheet over it, the chat say: nobody sees the office, its CPU goes to the sheet)
@@ -148,6 +149,7 @@ export function loop(now = 0) {
   for (const w of subs.values()) w.update(dt, state.sim);
   for (const w of leaving) { w.update(dt, state.sim); if (!w.root.parent) leaving.delete(w); }
   for (const w of npcs) w.update(dt, state.sim);
+  updateStudentTutors(dt, state.sim);
   if (PERF) lap('people');
   updateFlights(dt);
   updateRoom(dt, state.sim);

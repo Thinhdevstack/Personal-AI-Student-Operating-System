@@ -9,7 +9,7 @@ import { createMemoryService } from './memory.mjs';
 const uuid = (value) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 const time = () => new Date().toISOString();
 
-export function createCourseChat({ db, aiProvider, memory = createMemoryService({ db }) }) {
+export function createCourseChat({ db, aiProvider, memory = createMemoryService({ db }), activity }) {
   function course(id) {
     if (!uuid(id)) throw new StudentError('invalidInput');
     const row = db.prepare('SELECT * FROM courses WHERE id=?').get(id);
@@ -62,12 +62,21 @@ export function createCourseChat({ db, aiProvider, memory = createMemoryService(
       return { id, conversationId: conv.id, attemptId };
     }).immediate();
     if (claimed.replay) return history(activeCourse.id);
+    let phase = 'library.search';
+    let notify = () => {};
+    try { notify = activity?.begin({ courseId: activeCourse.id, courseName: activeCourse.name, requestId, turnId: claimed.id, attemptId: claimed.attemptId, isMock: !!aiProvider.isMock }) || notify; } catch { /* Optional visualization. */ }
+    const emit = (operation, status, count) => { try { notify(operation, status, count); } catch { /* Optional visualization. */ } };
     try {
+      emit(phase, 'started');
       if (!db.prepare("SELECT id FROM documents WHERE courseId=? AND status='ready' LIMIT 1").get(activeCourse.id)) throw new StudentError('chatNoMaterials', 409);
       const recent = db.prepare("SELECT m.role, m.content FROM chat_messages m JOIN chat_turns t ON t.id=m.turnId WHERE m.conversationId=? AND t.status='completed' ORDER BY t.sequence DESC, CASE m.role WHEN 'assistant' THEN 0 ELSE 1 END LIMIT ?").all(claimed.conversationId, L.historyMessages).reverse();
       const retrieved = await searchCourseMaterials({ db, courseId: activeCourse.id, query: retrievalQuestion(message, recent), aiProvider, limit: L.chunks, minScore: L.retrievalMinScore, includeArchived: true });
+      emit(phase, 'completed', retrieved.results.length);
+      phase = 'memory.search'; emit(phase, 'started');
       const memories = memory.select({ courseId: activeCourse.id, query: retrievalQuestion(message, recent), includeArchived: true });
       const context = buildAIContext({ course: activeCourse, message, history: recent, results: retrieved.results, memories, lang: language });
+      emit(phase, 'completed', context.memories.length);
+      phase = 'ai.respond'; emit(phase, 'started');
       const response = await aiProvider.chat(context);
       const answer = validateTutorAnswer(response, context.sources);
       db.transaction(() => {
@@ -77,10 +86,12 @@ export function createCourseChat({ db, aiProvider, memory = createMemoryService(
         db.prepare("UPDATE chat_turns SET status='completed', model=?, isMock=? WHERE id=?").run(aiProvider.chatModel || response.model || 'unknown', aiProvider.isMock ? 1 : 0, claimed.id);
         db.prepare('UPDATE chat_conversations SET updatedAt=? WHERE id=?').run(time(), claimed.conversationId);
       })();
+      emit(phase, 'completed'); emit('turn', 'completed');
       return history(activeCourse.id);
     } catch (error) {
       const safe = aiError(error);
       db.prepare("UPDATE chat_turns SET status='failed', errorCode=? WHERE id=? AND attemptId=? AND status='pending'").run(safe.code, claimed.id, claimed.attemptId);
+      emit(phase, 'failed'); emit('turn', safe.code === 'chatInterrupted' ? 'interrupted' : 'failed');
       throw safe;
     }
   }

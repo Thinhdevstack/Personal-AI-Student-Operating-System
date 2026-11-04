@@ -107,13 +107,14 @@ engine switches to demo mode and talks to no API.
 
 | Module | Lines | What it is |
 | --- | ---: | --- |
+| `adapters/student-events.js` | 81 | Student lifecycle state to bounded visual actors; no Claude session or academic business logic. |
 | `audio/sfx.js` | 75 | Sounds, synthesized in the browser. |
 | `core/env.js` | 73 | Page-wide basics: DOM helpers, the floor plan choice, replay clock, office clock, season, formatting. |
-| `core/loop.js` | 235 | The render loop and its frame budget. |
+| `core/loop.js` | 237 | The render loop and its frame budget. |
 | `core/optimize.js` | 141 | Merging static meshes into fewer draw calls, then starting. |
 | `core/state.js` | 3 | Values that more than one module assigns (the clock, the selection, mode switches…), on one shared object so any module can change them. |
 | `demo/demo-log.js` | 17 | The demo's conversation logs (a session's, shown in its drawer, and each subagent's steps), kept to what the drawer can show. |
-| `demo/demo.js` | 331 | Demo mode: fictional projects and a fictional Mac. |
+| `demo/demo.js` | 333 | Demo mode: fictional projects and a fictional Mac. |
 | `interact/first-person.js` | 263 | First person: walk the office as your own character, and (with the city outside) down the lift and out on the street: the pavements, the zebras (the traffic stops for you), the shops, the bánh mì cart. |
 | `interact/place-cards.js` | 201 | Place cards: what happens at each place. |
 | `interact/place-chips.js` | 182 | Place chips over the furniture and label decluttering. |
@@ -164,6 +165,7 @@ engine switches to demo mode and talks to no API.
 | `people/pickle.js` | 193 | Pickleball after work (world/backdrops/street-pickle.js). |
 | `people/rounds.js` | 130 | The director's rounds (company floor): twice a day out of the corner office and round the desks. |
 | `people/staff.js` | 394 | People who work here but aren't sessions: the receptionist, the evening cleaner, a Shopee courier with a parcel. |
+| `people/student-tutors.js` | 102 | Student tutors reuse the chibi rig and walking graph in their own namespace, outside session/NPC registries. |
 | `people/team-lines.js` | 28 | Dashed lines from a boss to its subagents. |
 | `people/teatime.js` | 91 | Friday 16:00: afternoon tea. |
 | `people/workers.js` | 555 | Workers: one character per session or subagent, what they do and where they walk. |
@@ -188,7 +190,7 @@ engine switches to demo mode and talks to no API.
 | `ui/icons.js` | 85 | Stroke icons (24 px grid) and the icon helper. |
 | `ui/image-view.js` | 28 | Images in the feed: a session that read, wrote or edited an image gets a thumbnail on that line (activity.js), and a click opens it here, large, over the office (the server serves it by id: GET /api/image). |
 | `ui/lite.js` | 144 | The 2D view: every session as a row, no 3D (the office keeps a frame a second behind it). |
-| `ui/look-switch.js` | 22 | Switching the character look. |
+| `ui/look-switch.js` | 24 | Switching the character look. |
 | `ui/mac-drawer.js` | 684 | The Mac drawer: memory, CPU, dev servers, plan limits, cleanup. |
 | `ui/models.js` | 44 | "Model: người điều phối và subagent" (Settings → More; server/models.mjs): the model a Claude session runs on, the one its subagents run on, always that one or only when Claude doesn't pick, and the note asking Claude to split big tasks. |
 | `ui/notify.js` | 64 | Notifications on this phone (Web Push: server/push.mjs sends them, public/sw.js shows them): Claude's answers in the group chat and an approval waiting, even with the office closed and the phone locked. |

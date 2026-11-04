@@ -1,0 +1,12 @@
+.student-office-panel { position: absolute; z-index: 5; right: 14px; top: 12px; width: min(270px, calc(100% - 28px)); max-height: 34dvh; overflow-y: auto; padding: 12px 14px; border: 1px solid var(--line-2); border-radius: 12px; background: var(--side); color: var(--ink); box-shadow: 0 6px 22px #0003; font-size: 12px; }
+.student-office-panel[hidden] { display: none; }
+#stage-wrap:has(.student-tutor-tag) #empty { display: none; }
+.student-office-panel summary { cursor: pointer; font-weight: 700; }
+.student-office-panel ul { margin: 8px 0 0; padding: 0; list-style: none; }
+.student-office-card { padding: 10px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.student-office-card strong, .student-office-card span, .student-office-card small { display: block; }
+.student-office-card span { margin: 6px 0; color: var(--accent-hi); }
+.student-office-card small { font-size: 10px; color: var(--muted); line-height: 1.6; }
+.student-office-card[data-status="failed"] span, .student-office-card[data-status="interrupted"] span { color: var(--red); }
+.student-tutor-tag { border: 1px solid #2a9d8f; }
+@media (max-width: 580px) { .student-office-panel { top: 8px; right: 8px; width: 210px; max-height: 26dvh; } }
