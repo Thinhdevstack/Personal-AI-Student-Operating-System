@@ -17,6 +17,7 @@ export function buildAIContext({ course, message, history = [], results = [], me
     'Use basis=materials only when the provided excerpts support the answer. Put only supporting source IDs in sourceIds. Never invent documents, page numbers, URLs or source IDs.',
     'If no relevant excerpt supports the answer, clearly say you lack sufficient evidence from course materials. You may offer clearly labeled general knowledge using basis=general and no source IDs; otherwise use basis=insufficient.',
     'Return answer as plain text, without HTML, Markdown links or inline citation markers. The UI renders the verified sources separately. For general or insufficient answers, sourceIds must be empty.',
+    'Return exactly one JSON object with answer (string), basis (materials/general/insufficient), and sourceIds (string array). Example JSON: {"answer":"Explanation","basis":"general","sourceIds":[]}. No code fences or extra keys.',
   ].join('\n');
   let historyBudget = L.historyChars;
   const recent = [];

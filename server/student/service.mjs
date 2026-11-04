@@ -3,7 +3,7 @@ import { openStudentDatabase } from './database.mjs';
 import { documentStorage, StudentError, validatePdf } from './storage.mjs';
 import { extractPdf } from '../documents/pdf.mjs';
 import { createChunks } from '../documents/chunking.mjs';
-import { createOpenAIProvider } from '../ai/openai.mjs';
+import { createAIProviders, registryForProvider } from '../ai/providers.mjs';
 import { searchCourseMaterials } from '../ai/retrieval.mjs';
 import { createCourseChat } from '../ai/chat.mjs';
 import { createMemoryService } from '../ai/memory.mjs';
@@ -24,10 +24,11 @@ const publicDocument = ({ storagePath, ...document }) => document;
 
 export function createStudentService(dir, options = {}) {
   const db = openStudentDatabase(dir), storage = documentStorage(dir);
-  const aiProvider = options.aiProvider || createOpenAIProvider();
+  const aiRegistry = options.aiRegistry || (options.aiProvider ? registryForProvider(options.aiProvider) : createAIProviders());
+  const aiProvider = aiRegistry.embedding;
   const memory = createMemoryService({ db });
   const activity = options.activity || createStudentActivity();
-  const chat = createCourseChat({ db, aiProvider, memory, activity });
+  const chat = createCourseChat({ db, aiProvider, memory, activity, aiRegistry });
 
   function semester(id) {
     const row = db.prepare('SELECT * FROM semesters WHERE id = ?').get(id);
@@ -61,6 +62,7 @@ export function createStudentService(dir, options = {}) {
     get aiProvider() { return aiProvider; },
     chatHistory: chat.history,
     sendChat: chat.send,
+    aiSettings: aiRegistry.settings,
     memories: memory.list,
     createMemory: memory.create,
     updateMemory: memory.update,

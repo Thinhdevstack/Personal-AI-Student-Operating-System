@@ -321,3 +321,29 @@ M1–M5 là roadmap MVP hiện tại; không có planner, quiz, learning-progres
 Bản thật local không cần key cho quản lý học kỳ/môn, upload/download PDF, CRUD memory và Office. Chế độ bình thường `AI_OFFLINE_MODE=0`, không tự bật mock. Processing/index embeddings, semantic search và Tutor vẫn cần key; chưa xác minh OpenAI thật. Khi có key, reprocess các PDF offline và kiểm tra một câu hỏi/live activity thật.
 
 Giới hạn bốn Tutor chỉ là cap actor hiển thị trong một cửa sổ Office, một actor cho mỗi môn có activity gần đây. Môn thứ năm có thể thay actor cũ; backend vẫn xử lý bình thường. Không giới hạn số môn/câu hỏi/conversation và không xóa dữ liệu. Hub giữ tối đa 32 trạng thái hình ảnh tạm thời, không phải 32 hồ sơ môn trong SQLite. Khi không có hoạt động AI, không có Student Tutor để hiển thị là trạng thái bình thường.
+
+## 13. Bổ sung OpenAI, Gemini và DeepSeek
+
+Baseline `c1f24ef` trên main sạch. Triển khai local ở `feat/multi-provider-ai`; không tự commit/push/merge. Reuse OpenAI SDK đang cài, không thêm dependency. Không sửa legacy group chat hoặc actor limit M5.
+
+### Provider và embeddings
+
+- `server/ai/providers.mjs`: registry tách chat và embedding provider. `AI_CHAT_PROVIDER` chọn mặc định, UI chọn provider từng câu hỏi. Không fallback khi thiếu key/quota/model lỗi. Capability response chỉ có id/label/model/configured/isMock và embedding identity; không có key.
+- OpenAI giữ Responses/strict schema/store:false hiện có. `compatible.mjs` dùng OpenAI SDK với upstream cố định và key riêng: Gemini `/v1beta/openai/chat/completions` với JSON Schema/reasoning low; DeepSeek `/chat/completions` với JSON object và thinking disabled. Cả hai dùng timeout 30 giây, maxRetries=0, output 4096 tokens; bỏ reasoning/tool calls khỏi flow, không trả raw error. Context chung có JSON instruction/example; validateTutorAnswer vẫn whitelist citation và giới hạn answer.
+- `gemini.mjs`: native `batchEmbedContents`, x-goog-api-key trong header, outputDimensionality rõ, batch 64, timeout và body limit 8 MiB, kiểm tra số vector/dimensions/finite values/norm. Chuẩn hóa vector và lưu model identity `gemini/<model>` để không nhầm với OpenAI. Dùng text chunks hiện có, không upload nguyên PDF.
+- `AI_EMBEDDING_PROVIDER` chỉ nhận openai/gemini; mặc định openai để giữ index cũ. Chat DeepSeek có thể kết hợp embeddings Gemini hoặc OpenAI. Chỉ có key Gemini vẫn dùng trọn pipeline nếu cấu hình cả hai provider là gemini. Đổi chat provider không reindex; đổi embedding identity cần Reprocess PDF.
+- Model mặc định được đối chiếu tài liệu chính thức: OpenAI giữ gpt-5-mini; Gemini gemini-3.6-flash, embeddings gemini-embedding-2; DeepSeek deepseek-flash. Có thể override bằng env. Không gọi API để dò model hoặc tự dùng key khác.
+
+### API, persistence và UI
+
+- Migration mới `005-chat-provider.sql`: thêm `chat_turns.provider`, default openai cho lịch sử cũ, các turn đã đánh dấu isMock chuyển mock. Không đổi source/memory snapshot hoặc xóa history.
+- `POST /api/student/chat` thêm optional `provider` (openai/gemini/deepseek; mock chỉ cho injection/offline legacy). Nếu retry/replay bỏ provider thì giữ provider đã lưu, kể cả khi server default đổi. Dùng lại requestId với provider khác báo conflict. Completed legacy mock vẫn replay được sau tắt offline vì không gọi provider.
+- `GET /api/student/ai`: cùng auth/host guard với API Student, không cho client truyền key/base URL/model tùy ý. Missing chat key bị từ chối trước embedding request để không tốn lượt gọi ở provider khác.
+- Course Chat có selector, trạng thái key thiếu, embedding label, per-answer provider/model, en/vi và mobile. Lựa chọn lưu theo course trong localStorage (chỉ provider ID). UI nói rõ context/history/memory gửi đến provider được chọn. Retry/uncertain request giữ provider gốc.
+- Offline mode rõ ràng mô phỏng cả ba lựa chọn và embeddings; không chứng minh kết nối thật. No-key vẫn dùng academic/material upload-download/memory như trước, chat bị chặn bằng trạng thái cấu hình.
+
+Tài liệu: [OpenAI structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses), [Gemini OpenAI compatibility](https://ai.google.dev/gemini-api/docs/openai), [Gemini embeddings](https://ai.google.dev/gemini-api/docs/embeddings), [DeepSeek JSON output](https://api-docs.deepseek.com/guides/json_mode/), [DeepSeek models](https://api-docs.deepseek.com/quick_start/pricing/).
+
+QA: production build, typecheck và lint đạt. Bộ unit test chạy với concurrency=2 đạt 198 pass, 3 skip, 0 fail; giới hạn concurrency tránh các timeout ở test legacy khi chạy cùng build. Tổng cộng 11 kịch bản browser đạt qua các lượt chạy, gồm chọn ba provider, retry giữ provider/requestId, lịch sử và giao diện mobile tiếng Việt. Hai kịch bản Office 3D bị timeout khi chạy song song đã đạt khi chạy lại với một worker. Đã kiểm tra ảnh desktop/mobile. Chưa có key thật nên chưa xác minh live ở cả ba nhà cung cấp.
+
+Đã tạo `.env.local` từ template với các key để trống; file được Git ignore. SQLite local được sao lưu dưới `data/tooling/provider-db-backup-*` trước khi chạy bản production mới. Chưa commit/push thay đổi provider.

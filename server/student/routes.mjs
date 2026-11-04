@@ -39,6 +39,7 @@ export function createStudentRoutes({ service, authorized, sameOrigin }) {
       if (!['GET', 'HEAD'].includes(req.method) && !sameOrigin(req)) throw new StudentError('forbidden', 403);
       const parts = url.pathname.split('/').filter(Boolean).slice(2);
       const [kind, id, child] = parts;
+      if (req.method === 'GET' && parts.length === 1 && kind === 'ai') return send(res, 200, service.aiSettings());
       if (kind === 'memories' && parts.length <= 2) {
         const target = { scope: url.searchParams.get('scope'), courseId: url.searchParams.get('courseId') };
         if (parts.length === 1 && req.method === 'GET') return send(res, 200, service.memories(target));
