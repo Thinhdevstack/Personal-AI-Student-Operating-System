@@ -1,6 +1,12 @@
-# My Office
+# Personal AI Student Operating System
+
+## Học tập bằng AI local
+
+Không cần API key hoặc phiên Claude: cài Ollama, tải `qwen3:4b` và `embeddinggemma:latest`, chạy `npm run build:student-local` rồi `npm run start:student-local`. Mở <http://localhost:4312/student?lang=vi>, tạo môn, kéo thả PDF và hỏi bài. Có hai cách trả lời: **Theo tài liệu** hoặc **Tài liệu + mở rộng**. Tìm web hiện **Chưa cấu hình**. Xem [hướng dẫn đầy đủ](docs/LOCAL-AI.md).
 
 [English](README.md) · Tiếng Việt
+
+**Bản mô phỏng học tập không cần API key hoặc Claude:** chạy `npm run build:student-demo`, sau đó `npm run start:student-demo` và mở http://localhost:4311/?lang=vi. Nhấn **Tạo dữ liệu mẫu**, chọn môn rồi mở chat Tutor. Chat và embeddings được mô phỏng; dữ liệu lưu riêng trong `data/student-demo/student/`. Xem [hướng dẫn dùng thử](docs/STUDENT-DEMO.md).
 
 ![My Office: tầng công ty với các phiên đang làm việc](docs/media/demo.gif)
 

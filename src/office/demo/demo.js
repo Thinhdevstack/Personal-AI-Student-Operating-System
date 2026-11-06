@@ -1,6 +1,6 @@
 // Demo mode: fictional projects and a fictional Mac.
 import { state } from '../core/state.js';
-import { $, STATIC, officeNow, rand, replay } from '../core/env.js';
+import { $, STATIC, STUDENT_LEARNING, officeNow, rand, replay } from '../core/env.js';
 import { CHAIR_IDLE, chairs } from '../world/desks.js';
 import { sessions, subs, workers } from '../people/workers.js';
 import { chatAct, chatApply, chatLeft, chatLoad } from '../ui/group-chat.js';
@@ -329,5 +329,5 @@ export function dropSessionNow(id) {
 export function setup() {
   /* ---------- demo mode (?demo): fictional projects and a fictional Mac, so the office can be shown or screenshotted
      without any real sessions, paths or commands. Nothing is sent to the server and no action touches the machine. ---------- */
-  DEMO = STATIC || new URLSearchParams(location.search).has('demo');
+  DEMO = STATIC || (!STUDENT_LEARNING && new URLSearchParams(location.search).has('demo'));
 }

@@ -138,3 +138,6 @@
   .student-chat-compose > div { flex-wrap: wrap; }
 }
 
+.student-dropzone { padding: 24px; margin: 14px 0; border: 2px dashed var(--line-2); border-radius: 12px; text-align: center; color: var(--muted); }
+.student-dropzone.is-dragging { border-color: var(--accent-hi); background: var(--accent-soft); color: var(--ink); }
+.student-index-hint { display: block; color: var(--muted); }

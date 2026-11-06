@@ -10,6 +10,8 @@ import '@/styles/topbar-plan.css';
 import '@/styles/sidebars.css';
 import '@/styles/activity.css';
 import '@/styles/student-office.css';
+import '@/styles/student-demo.css';
+import { getStudentDemo, getStudentLocal } from '@/features/academic/server-mode';
 import '@/styles/sessions.css';
 import '@/styles/streamer.css';
 import '@/styles/permissions.css';
@@ -59,7 +61,7 @@ export const viewport: Viewport = { width: 'device-width', initialScale: 1, view
 export default async function RootLayout({ children }: { children: ReactNode }) {
   return (
     // data-os: the machine's platform, for the words "Mac" / "PC" / "computer" (the online demo is a pretend Mac)
-    <html lang={await getLang()} data-os={process.env.OFFICE_STATIC === '1' ? 'darwin' : process.platform}>
+    <html lang={await getLang()} data-student-local={await getStudentLocal() ? '1' : undefined} data-student-demo={await getStudentDemo() ? '1' : undefined} data-os={process.env.OFFICE_STATIC === '1' ? 'darwin' : process.platform}>
       <body>
         {children}
         {/* QR codes for "open on your phone" (qrcode.js, MIT), kept local so the office works offline */}

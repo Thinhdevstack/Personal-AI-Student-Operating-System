@@ -51,8 +51,12 @@ import { pickLang, createT } from '../src/i18n/index.js';
 import { createLiftService } from './lift-service.mjs';
 import { createStudentService } from './student/service.mjs';
 import { createStudentRoutes } from './student/routes.mjs';
+import { createStudentDemoSeed } from './student/demo-seed.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const STUDENT_DEMO = process.env.OFFICE_STUDENT_DEMO === '1';
+const STUDENT_LOCAL = process.env.OFFICE_STUDENT_LOCAL === '1' && !STUDENT_DEMO;
+const STUDENT_LEARNING = STUDENT_DEMO || STUDENT_LOCAL;
 const PORT = Number(process.env.OFFICE_PORT) || 4310;
 // Only this Mac by default; `my-office start --lan` (or OFFICE_HOST=0.0.0.0) opens it to the home wifi.
 const HOST = process.env.OFFICE_HOST || '127.0.0.1';
@@ -864,7 +868,7 @@ function noteDir(dir) {
 
 /* ---------- session discovery ---------- */
 let scanning = null;
-function scanSessions() { return (scanning ??= doScan().finally(() => { scanning = null; })); }
+function scanSessions() { return STUDENT_LEARNING ? Promise.resolve() : (scanning ??= doScan().finally(() => { scanning = null; })); }
 // The pid in a session file is that session only if the process started when the session did (a reboot reuses
 // pids: without this a stale file shows a ghost). Start times come from ps, once per pid. Idea from W17ant (MIT).
 const procStart = new Map();   // pid -> start (ms)
@@ -1822,6 +1826,7 @@ const others = new Map();   // folder -> { at, windows, account, note, wait, bac
 const accName = (d) => clip(path.basename(d).replace(/^\.claude-?/, '') || path.basename(d), 16);
 const loggedIn = (d) => { try { return !!JSON.parse(fs.readFileSync(path.join(d, '.claude.json'), 'utf8')).oauthAccount; } catch { return false; } };
 function scanAccounts() {
+  if (STUDENT_LEARNING) return;
   const home = os.homedir(), found = new Set();
   for (const d of String(process.env.OFFICE_CLAUDE_DIRS || '').split(path.delimiter).filter(Boolean)) found.add(path.resolve(d.replace(/^~(?=$|[\\/])/, home)));
   try { for (const e of fs.readdirSync(home, { withFileTypes: true })) if (/^\.claude-./.test(e.name) && (e.isDirectory() || e.isSymbolicLink())) found.add(path.join(home, e.name)); } catch { /* no home */ }
@@ -2420,13 +2425,16 @@ async function openFolder(dir) {
   return app ? done('open', ['-a', app, dir], path.basename(app, '.app')) : done('open', [dir], 'Finder');
 }
 
-const student = createStudentService(path.join(DATA_DIR, 'student'));
+const student = createStudentService(path.join(DATA_DIR, 'student'), { studentDemo: STUDENT_DEMO });
 student.activity.subscribe((event) => broadcast({ k: 'student', event }));
 process.once('exit', () => student.close());
-const studentRoutes = createStudentRoutes({ service: student, authorized, sameOrigin: sameOriginOf });
+const studentRoutes = createStudentRoutes({ service: student, authorized, sameOrigin: sameOriginOf, ...(STUDENT_DEMO && { demoSeed: createStudentDemoSeed(student) }) });
 
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
+  if (STUDENT_LEARNING && (/^\/(?:event|hook(?:\/|$)|v1\/(?:metrics|logs))/.test(url.pathname) || /^\/api\/(?:tasks|rc|accounts|models|prompt|quick|chat|tunnel)(?:\/|$)/.test(url.pathname))) {
+    req.resume(); res.writeHead(404).end(); return;
+  }
   if (req.method === 'POST' && url.pathname === '/event') {
     if (!isLoopback(req)) { res.writeHead(403).end(); return; }
     const chunks = []; let size = 0;
@@ -3071,6 +3079,8 @@ const server = http.createServer((req, res) => {
     if (!isLoopback(req) && (!ck || (ck.keep && ck.exp - Date.now() < (KEEP_DAYS - 30) * 86400e3))) res.setHeader('Set-Cookie', pinCookie(req));
     if (url.pathname === '/index.html') req.url = '/' + url.search;
     req.headers['x-office-lang'] = pickLang(url.searchParams.get('lang') || prefs.lang());   // ?lang=vi: one visit in another language
+    req.headers['x-office-student-demo'] = STUDENT_DEMO ? '1' : '0';
+    req.headers['x-office-student-local'] = STUDENT_LOCAL ? '1' : '0';
     nextHandle(req, res);
     return;
   }
@@ -3285,6 +3295,8 @@ process.on('exit', () => { try { awakeProc?.kill(); } catch { /* gone */ } otel.
 for (const sig of ['SIGTERM', 'SIGINT']) process.on(sig, () => process.exit(0));
 
 server.listen(PORT, HOST, () => {
+  if (STUDENT_LOCAL) { console.log(`Student local: http://${HOST}:${PORT}/?lang=vi (Ollama; normal academic data)`); return; }
+  if (STUDENT_DEMO) { console.log(`Student simulation: http://${HOST}:${PORT}/?lang=vi (isolated demo data; no live AI)`); return; }
   syncLan();
   if (prefs.get('tunnel')) startTunnel(); else killStaleTunnel();
   scanSessions();

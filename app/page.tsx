@@ -10,13 +10,19 @@ import PhoneModal from '@/components/office/PhoneModal';
 import WrappedModal from '@/components/office/WrappedModal';
 import Toast from '@/components/office/Toast';
 import OfficeBoot from '@/components/OfficeBoot';
+import StudentDemoPanel from '@/features/academic/StudentDemoPanel';
+import { getStudentDemo, getStudentLocal } from '@/features/academic/server-mode';
+import { getLang } from '@/i18n/server';
 
 // Rendered on every request (the components read the office's language from the request headers): the server in
 // front of Next decides who may see it. The static demo build renders it once instead.
-export default function OfficePage() {
+export default async function OfficePage() {
+  const studentDemo = await getStudentDemo();
+  const studentLocal = await getStudentLocal();
   return (
     <div id="app">
       <TopBar />
+      {(studentDemo || studentLocal) && <StudentDemoPanel lang={await getLang()} office local={studentLocal} />}
       <SessionRail />
       <Stage />
       <ActivityPanel />

@@ -1,7 +1,7 @@
 // Choosing the backdrop: city, countryside or beach.
 import * as THREE from 'three';
 import { state } from '../../core/state.js';
-import { $, hhmm, officeNow } from '../../core/env.js';
+import { $, STUDENT_LEARNING, hhmm, officeNow } from '../../core/env.js';
 import { scene } from '../../scene/renderer.js';
 import { buildCity } from './city.js';
 import { buildCountry } from './countryside.js';
@@ -44,6 +44,5 @@ export function setup() {
     if (state.selectedId) renderSessionHead();
   }, 1000);
   $('clock').textContent = hhmm(officeNow().getTime()) + wxChip();
-  loadMac();
-   state.macTimer = setInterval(pollMac, 30000);
+  if (!STUDENT_LEARNING) { loadMac(); state.macTimer = setInterval(pollMac, 30000); }
 }

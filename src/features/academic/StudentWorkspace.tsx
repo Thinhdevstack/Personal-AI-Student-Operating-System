@@ -7,12 +7,13 @@ import type { AcademicSnapshot, Course, Material, SearchResult, Semester } from 
 import * as api from './api';
 import CourseChat from '@/features/ai/CourseChat';
 import MemoryWorkspace from '@/features/ai/MemoryWorkspace';
+import StudentDemoPanel from './StudentDemoPanel';
 
 type Tab = 'overview' | 'materials' | 'chat' | 'memory' | 'progress';
 type Editor = { kind: 'semester' | 'course'; action: 'create' | 'rename' | 'archive' | 'delete'; id?: string; name?: string };
 const MAX_PDF_BYTES = 20 * 1024 * 1024;
 
-export default function StudentWorkspace({ lang }: { lang: string }) {
+export default function StudentWorkspace({ lang, studentDemo = false, studentLocal = false }: { lang: string; studentDemo?: boolean; studentLocal?: boolean }) {
   const translate = createT(lang);
   const t = (key: string) => String(translate(`student.${key}`));
   const [data, setData] = useState<AcademicSnapshot | null>(null);
@@ -31,6 +32,8 @@ export default function StudentWorkspace({ lang }: { lang: string }) {
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
   const [searching, setSearching] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const uploadLock = useRef(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
 
   // Native modal dialogs provide keyboard focus containment and restore focus on close.
@@ -116,6 +119,19 @@ export default function StudentWorkspace({ lang }: { lang: string }) {
     } catch (err) { setError(err instanceof api.AcademicApiError ? err.message : 'network'); }
     finally { setBusy(false); }
   }
+  function uploadFiles(files: File[]) {
+    if (busy || uploadLock.current || !course || course.status !== 'active') return;
+    if (files.length !== 1) { setError('onePdf'); return; }
+    const file = files[0];
+    if (!/\.pdf$/i.test(file.name)) { setError('invalidFile'); return; }
+    if (!file.size || file.size > MAX_PDF_BYTES) { setError('fileTooLarge'); return; }
+    const target = course.id;
+    uploadLock.current = true;
+    void run(async () => {
+      const uploaded = await api.upload(target, file);
+      void api.processDocument(uploaded.id).finally(() => setRevision((r) => r + 1)).catch(() => {});
+    }).finally(() => { uploadLock.current = false; });
+  }
   async function saveEditor(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!editor) return;
@@ -154,6 +170,8 @@ export default function StudentWorkspace({ lang }: { lang: string }) {
           <span className={`student-status-badge student-status-${item.status}`}>
             {t(`status.${item.status}`)}
           </span>
+          {item.status === 'ready' && item.indexReady === false && <span className="student-index-hint">{t('local.reindexHint')}</span>}
+          {item.processingError && item.status === 'ready' && <span>{t(`errors.${item.processingError}`)}</span>}
           {item.status === 'ready' && item.pageCount && ` · ${item.pageCount} ${t('pages')}`}
           {item.status === 'ready' && typeof item.chunkCount === 'number' && ` · ${item.chunkCount} ${t('chunks')}`}
           {item.status === 'failed' && item.processingError && ` (${t(`errors.${item.processingError}`) || item.processingError})`}
@@ -204,6 +222,9 @@ export default function StudentWorkspace({ lang }: { lang: string }) {
       <header className="student-page-heading"><div><p className="student-eyebrow">{t('title')}</p><h1>{view === 'memory' ? t('memory.global') : view === 'today' ? t('today') : course?.name || semester?.name || t('academic')}</h1><p>{view === 'memory' ? t('memory.globalHint') : view === 'today' ? t('subtitle') : course?.code || semester?.academicYear}</p></div><a href={officeHref} target="_blank" rel="noopener" title={t('officeActivity.open')}>{t('office')} ↗</a></header>
       {error && <div role="alert" className="student-error">{t(`errors.${error}`)} <button onClick={() => window.location.reload()}>{t('retry')}</button></div>}
       <div role="status" className="student-notice">{busy ? t('working') : notice ? t(notice) : ''}</div>
+      {(studentDemo || studentLocal) && <StudentDemoPanel lang={lang} local={studentLocal} onSeed={(result) => {
+        setData(result); setSemesterId((value) => value || result.semesters.find((item) => item.isActive)?.id || result.semesters[0]?.id || ''); setRevision((value) => value + 1);
+      }} />}
       {!data ? <p>{t('loading')}</p> : view === 'memory' ? <section className="student-panel"><MemoryWorkspace lang={lang} target={{ scope: 'global' }} /></section> : view === 'today' ? <>
         <section className="student-hero"><p className="student-eyebrow">{t('activeSemester')}</p><h2>{current?.name || t('noActive')}</h2><p>{current?.academicYear || t('todayHint')}</p>
           <button className="student-primary" onClick={() => current ? chooseSemester(current.id) : setEditor({ kind: 'semester', action: 'create' })}>{current ? t('academic') : t('createSemester')} →</button>
@@ -224,17 +245,10 @@ export default function StudentWorkspace({ lang }: { lang: string }) {
             {course.status === 'archived' && <p className="student-archive-note">{t('archivedHint')}</p>}
             {tab === 'overview' && <><h2>{course.name}</h2><p>{course.description || t('selectCourse')}</p><p>{t('semester')}: {semester.name} · {semester.academicYear}</p><p>{t(`status.${course.status}`)}</p><button onClick={() => setTab('materials')}>{t('materials')} →</button></>}
             {tab === 'materials' && <><div className="student-section-heading"><h2>{t('materials')}</h2>{course.status === 'active' && <label className={`student-upload ${busy ? 'is-disabled' : ''}`}>{t('upload')}<input aria-label={t('upload')} type="file" accept=".pdf,application/pdf" disabled={busy} onChange={(event) => {
-              const file = event.target.files?.[0]; event.target.value = '';
-              if (!file) return;
-              if (!/\.pdf$/i.test(file.name)) { setError('invalidFile'); return; }
-              if (!file.size || file.size > MAX_PDF_BYTES) { setError('fileTooLarge'); return; }
-              const target = course.id;
-              void run(async () => {
-                const uploaded = await api.upload(target, file);
-                // Trigger processing in background
-                void api.processDocument(uploaded.id).then(() => setRevision((r) => r + 1)).catch(() => setRevision((r) => r + 1));
-              });
+              const files = Array.from(event.target.files || []); event.target.value = '';
+              if (files.length) uploadFiles(files);
             }} /></label>}</div><p>{t('pdfHint')}</p>
+              {course.status === 'active' && <div className={`student-dropzone${dragging ? ' is-dragging' : ''}`} onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = busy ? 'none' : 'copy'; }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }} onDrop={(event) => { event.preventDefault(); setDragging(false); uploadFiles(Array.from(event.dataTransfer.files)); }} aria-busy={busy}>{t(busy ? 'local.uploading' : 'local.dropPdf')}</div>}
               {courseMaterials === null ? <p>{t('loading')}</p> : courseMaterials.length ? materialList(courseMaterials) : <div className="student-empty">{t('emptyMaterials')}</div>}
               <p className="student-footnote">{t('uploadedHint')}</p>
 

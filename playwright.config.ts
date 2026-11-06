@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { defineConfig } from '@playwright/test';
+import { browserOptions } from './tests/e2e/browser-options';
 
 // End-to-end smoke test: the production build in demo mode (no Claude Code needed), on its own port and data folder.
 // E2E_PORT and E2E_OUT give a second run of its own port and folder, so two can go side by side.
@@ -12,12 +13,14 @@ process.env.CLAUDE_CONFIG_DIR = path.join(HOME_DIR, '.claude');
 export const DATA_DIR = path.resolve(OUT, 'office-data');
 export default defineConfig({
   testDir: 'tests/e2e',
+  // These suites launch different servers and must use their dedicated configurations.
+  testIgnore: ['**/student-demo.spec.ts', '**/student-local.spec.ts'],
   outputDir: OUT,
   timeout: 90_000,
   retries: process.env.CI ? 1 : 0,
-  workers: 2,                       // each test builds a whole 3D office: two at a time is plenty
+  workers: process.env.CI ? 1 : 2,  // software-rendered 3D scenes compete for the runner's CPU
   expect: { timeout: 30_000 },      // the office takes a few seconds to build on a busy machine or a CI runner
-  use: { baseURL: `http://127.0.0.1:${PORT}`, viewport: { width: 1440, height: 900 } },
+  use: { ...browserOptions, baseURL: `http://127.0.0.1:${PORT}`, viewport: { width: 1440, height: 900 } },
   webServer: {
     command: 'node server/index.mjs',
     url: `http://127.0.0.1:${PORT}/health`,

@@ -1,6 +1,6 @@
 // Student tutors reuse the chibi rig and walking graph in their own namespace, outside session/NPC registries.
 import { state } from '../core/state.js';
-import { $, STATIC, el, reduceMotion, replay, short } from '../core/env.js';
+import { $, STATIC, STUDENT_LEARNING, el, reduceMotion, replay, short } from '../core/env.js';
 import { Worker } from './workers.js';
 import { STATIONS } from './navigation.js';
 import { t } from '../../i18n/index.js';
@@ -9,7 +9,7 @@ import { createStudentOfficeAdapter } from '../adapters/student-events.js';
 const actors = new Map();
 let adapter = null, panel = null, list = null, disposed = false;
 const tr = (key, vars) => t('student.officeActivity.' + key, vars);
-const enabled = () => !STATIC && !new URLSearchParams(location.search).has('demo');
+const enabled = () => !STATIC && (STUDENT_LEARNING || !new URLSearchParams(location.search).has('demo'));
 
 function createActor(event) {
   const home = STATIONS.meeting.find((spot) => !spot.by);

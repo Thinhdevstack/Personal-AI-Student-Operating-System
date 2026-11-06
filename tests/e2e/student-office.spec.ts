@@ -2,6 +2,7 @@ import { test, expect } from '@playwright/test';
 import type { Page } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 import { studentPdf } from '../fixtures/student-pdf.mjs';
+import { officeStartTimeout } from './browser-options';
 
 type Actor = { courseId: string; actorId: string; attemptId: string; status: string; current: string | null; inScene: boolean; anim: string; phase: string; history: string[]; position: { x: number; z: number }; home: { x: number; z: number } };
 type DebugWindow = Window & { __studentOffice?: { ready: () => boolean; inspect: () => Actor[] } };
@@ -14,7 +15,7 @@ test('@smoke Student Tutor drives independent 3D actors across two tabs, failure
   for (const page of [student, office]) page.on('pageerror', (error) => errors.push(error.message));
   await office.addInitScript(() => { localStorage.setItem('office-tips', 'seen'); localStorage.setItem('office-quality', 'low'); });
   await office.goto('/?layout=cozy&debug');
-  await expect(office.locator('#stage canvas')).toBeVisible();
+  await expect(office.locator('#stage canvas')).toBeVisible({ timeout: officeStartTimeout });
   await office.waitForFunction(() => (window as DebugWindow).__studentOffice?.ready());
   const semester = await (await request.post('/api/student/semesters', { data: { name: 'Office adapter semester', academicYear: '2026' } })).json();
   const course = await (await request.post('/api/student/courses', { data: { semesterId: semester.id, name: 'Office OOP' } })).json();

@@ -1,35 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { studentPdf } from '../fixtures/student-pdf.mjs';
 
-function createPdfBuffer(pagesText: string[]): Buffer {
-  let out = '%PDF-1.4\n1 0 obj\n<< /Type /Catalog /Pages 2 0 R >>\nendobj\n';
-  const pageCount = pagesText.length;
-  const kids = Array.from({ length: pageCount }, (_, i) => `${3 + i} 0 R`).join(' ');
-  out += `2 0 obj\n<< /Type /Pages /Kids [${kids}] /Count ${pageCount} >>\nendobj\n`;
-
-  const fontObjId = 3 + pageCount;
-  const contentStartId = fontObjId + 1;
-
-  for (let i = 0; i < pageCount; i++) {
-    const pageId = 3 + i;
-    const contentId = contentStartId + i;
-    out += `${pageId} 0 obj\n<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 ${fontObjId} 0 R >> >> /Contents ${contentId} 0 R >>\nendobj\n`;
-  }
-
-  out += `${fontObjId} 0 obj\n<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>\nendobj\n`;
-
-  for (let i = 0; i < pageCount; i++) {
-    const contentId = contentStartId + i;
-    const cleanText = pagesText[i].replace(/[()\\\\]/g, '');
-    const stream = `BT\n/F1 12 Tf\n100 700 Td\n(${cleanText}) Tj\nET\n`;
-    out += `${contentId} 0 obj\n<< /Length ${Buffer.byteLength(stream)} >>\nstream\n${stream}endstream\nendobj\n`;
-  }
-
-  out += `xref\n0 ${contentStartId + pageCount}\n0000000000 65535 f \n`;
-  out += `trailer\n<< /Size ${contentStartId + pageCount} /Root 1 0 R >>\nstartxref\n${Buffer.byteLength(out)}\n%%EOF\n`;
-  return Buffer.from(out);
-}
-
 test('@smoke student semester, course, PDF and archive survive reload', async ({ page }) => {
   const suffix = Date.now().toString();
   const errors: string[] = [];
@@ -95,7 +66,7 @@ test('@smoke student document processing and semantic retrieval flow', async ({ 
   await page.getByRole('button', { name: 'Materials', exact: true }).click();
 
   // 4. Upload valid PDF with text
-  const pdfBytes = createPdfBuffer([
+  const pdfBytes = studentPdf([
     'Aggregation and composition in Object Oriented Programming Java.',
     'Inheritance and polymorphism are fundamental object concepts.',
   ]);
@@ -170,10 +141,18 @@ test('@smoke course tutor uses scoped sources, persists history, retries and wor
   await page.reload();
   await expect(page.locator('.student-chat-user')).toHaveCount(3);
   // The server completes the next question, but its response never reaches the page.
+  // The first history reads also fail: recovery must continue rather than leave a saved answer invisible.
+  let historyReads = 0;
+  await page.route(`**/api/student/courses/${course.id}/chat`, async (route) => {
+    historyReads++;
+    if (historyReads <= 2) await route.abort('failed'); else await route.continue();
+  });
   await page.route('**/api/student/chat', async (route) => { await route.fetch(); await route.abort('failed'); }, { times: 1 });
   await input.fill('What is aggregation?');
   await page.getByRole('button', { name: 'Send', exact: true }).click();
   await expect(answers).toHaveCount(4);
+  expect(historyReads).toBeGreaterThan(2);
+  await page.unroute(`**/api/student/courses/${course.id}/chat`);
   await expect(page.locator('.student-chat-user')).toHaveCount(4);
   await expect(page.locator('.course-chat').getByRole('alert')).toHaveCount(0);
   await page.screenshot({ path: test.info().outputPath('course-chat-desktop.png'), fullPage: true });

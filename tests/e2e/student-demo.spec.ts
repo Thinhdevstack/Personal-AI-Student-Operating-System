@@ -1,0 +1,91 @@
+import { test, expect } from '@playwright/test';
+import { officeStartTimeout } from './browser-options';
+
+type DebugWindow = Window & { __studentOffice?: { ready: () => boolean; inspect: () => { courseId: string; inScene: boolean; history: string[] }[] }; __office?: { sessions: Map<string, unknown> } };
+
+test('@smoke student simulation seeds once, chats without keys or Claude, and drives the office on desktop/mobile', async ({ page: office, context, request }) => {
+  const config = await (await request.get('/api/student/ai')).json();
+  expect(config.studentDemo).toBe(true); expect(config.isMock).toBe(true);
+  expect(config.chatProviders).toHaveLength(3);
+  expect(config.chatProviders.every((provider: { isMock: boolean; configured: boolean }) => provider.isMock && provider.configured)).toBe(true);
+  expect(config.embedding.isMock).toBe(true);
+  expect((await request.post('/event', { data: { session_id: 'not-a-claude-session' } })).status()).toBe(404);
+  expect((await request.post('/api/tasks', { data: {} })).status()).toBe(404);
+  const errors: string[] = [], externalAI: string[] = [];
+  context.on('page', (page) => page.on('pageerror', (error) => errors.push(error.message)));
+  office.on('pageerror', (error) => errors.push(error.message));
+  context.on('request', (req) => { if (/https:\/\/(?:api\.openai\.com|generativelanguage\.googleapis\.com|api\.deepseek\.com)/.test(req.url())) externalAI.push(req.url()); });
+  await office.addInitScript(() => { localStorage.setItem('office-tips', 'seen'); localStorage.setItem('office-quality', 'high'); localStorage.setItem('office-layout', 'hq'); });
+  // The old ?demo must not disable real Student lifecycle delivery in this server-owned mode.
+  await office.goto('/?demo&debug&lang=vi');
+  await expect(office.locator('html')).toHaveAttribute('data-student-demo', '1');
+  await expect(office.locator('#stage canvas')).toBeVisible({ timeout: officeStartTimeout });
+  await office.waitForFunction(() => !!(window as DebugWindow).__studentOffice?.ready());
+  await expect(office.locator('#empty')).toContainText('Văn phòng học tập đã sẵn sàng');
+  await expect(office.locator('#btn-chat')).toContainText('Tutor học tập');
+  await office.getByRole('button', { name: 'Tạo dữ liệu mẫu', exact: true }).click();
+  await expect(office.getByRole('status')).toContainText('Dữ liệu mẫu đã sẵn sàng');
+  await office.getByRole('button', { name: 'Tạo dữ liệu mẫu', exact: true }).click();
+  await expect(office.getByRole('button', { name: 'Tạo dữ liệu mẫu', exact: true })).toBeEnabled();
+  const initial = await (await request.get('/api/student/snapshot')).json();
+  expect(initial.courses).toHaveLength(2); expect(initial.recentMaterials).toHaveLength(2);
+  expect(initial.recentMaterials.every((doc: { status: string }) => doc.status === 'ready')).toBe(true);
+  const course = initial.courses.find((row: { code: string }) => row.code === 'DEMO-OOP');
+  await office.locator('#btn-chat').click();
+  await expect(office.locator('#demo-course-picker')).toBeFocused();
+  await office.locator('#demo-course-picker').selectOption(course.id);
+  const href = await office.getByRole('link', { name: 'Mở chat của môn', exact: false }).getAttribute('href');
+  expect(href).toContain('course=' + course.id); expect(href).toContain('tab=chat');
+  expect(await office.evaluate(() => ({ quality: localStorage.getItem('office-quality'), layout: localStorage.getItem('office-layout') }))).toEqual({ quality: 'high', layout: 'hq' });
+  expect(await office.evaluate(() => (window as DebugWindow).__office?.sessions.size)).toBe(0);
+  const student = await context.newPage();
+  await student.goto(href!);
+  await expect(student.locator('.student-demo-badge')).toContainText('không sử dụng AI thật');
+  const provider = student.locator('select[id^="chat-provider-"]');
+  await expect(provider.locator('option')).toHaveCount(3);
+  await expect(provider).toContainText(/mô phỏng/i);
+  await provider.selectOption('gemini');
+  const question = student.locator('textarea[id^="chat-question-"]');
+  await question.fill('Giải thích aggregation và composition');
+  await student.getByRole('button', { name: 'Gửi', exact: true }).click();
+  await expect(student.locator('.student-chat-assistant')).toHaveCount(1);
+  await expect(student.locator('.student-chat-assistant')).toContainText('Phản hồi thử nghiệm');
+  await expect(student.locator('.student-chat-memories li')).toHaveCount(2);
+  // Simulate a dropped request before delivery; retry must retain its request ID and provider.
+  await provider.selectOption('deepseek');
+  const attempts: { requestId: string; provider: string }[] = [];
+  await student.route('**/api/student/chat', async (route) => {
+    attempts.push(route.request().postDataJSON());
+    if (attempts.length === 1) await route.abort(); else await route.continue();
+  });
+  await question.fill('Cho ví dụ aggregation');
+  await student.getByRole('button', { name: 'Gửi', exact: true }).click();
+  await expect(provider).toBeDisabled();
+  await student.getByRole('button', { name: 'Thử lại câu hỏi', exact: true }).click();
+  await expect(student.locator('.student-chat-assistant')).toHaveCount(2);
+  expect(attempts[1].requestId).toBe(attempts[0].requestId); expect(attempts[1].provider).toBe('deepseek');
+  await student.unroute('**/api/student/chat');
+  await provider.selectOption('openai'); await question.fill('Composition là gì?');
+  await student.getByRole('button', { name: 'Gửi', exact: true }).click();
+  await expect(student.locator('.student-chat-assistant')).toHaveCount(3);
+  await student.reload();
+  await expect(student.locator('.student-chat-assistant')).toHaveCount(3);
+  await expect(provider).toHaveValue('openai');
+  const history = await (await request.get(`/api/student/courses/${course.id}/chat`)).json();
+  expect(history.turns.map((turn: { provider: string }) => turn.provider)).toEqual(['gemini', 'deepseek', 'openai']);
+  expect(history.turns.every((turn: { isMock: boolean }) => turn.isMock)).toBe(true);
+  await office.bringToFront();
+  await expect(office.locator('.student-office-card')).toContainText('Mô phỏng');
+  await expect(office.locator('#empty')).toBeHidden();
+  await expect.poll(() => office.evaluate((id) => (window as DebugWindow).__studentOffice?.inspect().some((actor) => actor.courseId === id && actor.inScene && actor.history.includes('ai.respond')), course.id), { timeout: 45000 }).toBe(true);
+  expect(await office.evaluate(() => (window as DebugWindow).__office?.sessions.size)).toBe(0);
+  await office.screenshot({ path: test.info().outputPath('student-demo-office-desktop.png'), fullPage: true });
+  await student.screenshot({ path: test.info().outputPath('student-demo-chat-desktop.png'), fullPage: true });
+  for (const page of [student, office]) {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.bringToFront();
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await page.screenshot({ path: test.info().outputPath(page === student ? 'student-demo-chat-mobile.png' : 'student-demo-office-mobile.png'), fullPage: true });
+  }
+  expect(externalAI).toEqual([]); expect(errors).toEqual([]);
+});

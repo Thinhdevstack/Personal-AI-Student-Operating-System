@@ -1,5 +1,13 @@
 # Architecture
 
+## Local learning path
+
+`scripts/student-local.mjs` starts the existing server in a server-owned learning shell, using the normal academic database and Ollama for both chat and embeddings. `server/student/local-config.mjs` overrides inherited mock flags after dotenv. The server disables legacy Claude intake/session discovery for this shell and overwrites both learning-mode headers before rendering. The simulation launcher retains separate mock storage.
+
+`server/ai/ollama.mjs` uses the native loopback-only `/api/chat`, `/api/embed` and `/api/tags` endpoints, with bounded bodies, cancellation, timeouts, and one inference at a time. The tutor keeps the existing structured answer/citation validation before displaying a complete answer. UI status is read from pending chat history; no raw model output is streamed.
+
+Migration `006-local-tutor.sql` preserves old embedding rows and adds a composite index identity `(chunkId, provider, model, dimensions, modelVersion)`. Reprocessing retains stable chunks and other model indexes when the extracted content matches; failure preserves the previous ready index. Chat history stores answer mode and accepts Ollama attribution. Web search is currently unavailable, visibly disabled and rejected by the API. See [LOCAL-AI.md](LOCAL-AI.md).
+
 My Office is two programs in one repository:
 
 1. **A local server** (`server/`, plain Node.js ESM, no build step). Claude Code hooks POST every event to it; it keeps one
@@ -109,8 +117,8 @@ engine switches to demo mode and talks to no API.
 | --- | ---: | --- |
 | `adapters/student-events.js` | 81 | Student lifecycle state to bounded visual actors; no Claude session or academic business logic. |
 | `audio/sfx.js` | 75 | Sounds, synthesized in the browser. |
-| `core/env.js` | 73 | Page-wide basics: DOM helpers, the floor plan choice, replay clock, office clock, season, formatting. |
-| `core/loop.js` | 237 | The render loop and its frame budget. |
+| `core/env.js` | 75 | Page-wide basics: DOM helpers, the floor plan choice, replay clock, office clock, season, formatting. |
+| `core/loop.js` | 239 | The render loop and its frame budget. |
 | `core/optimize.js` | 141 | Merging static meshes into fewer draw calls, then starting. |
 | `core/state.js` | 3 | Values that more than one module assigns (the clock, the selection, mode switches…), on one shared object so any module can change them. |
 | `demo/demo-log.js` | 17 | The demo's conversation logs (a session's, shown in its drawer, and each subagent's steps), kept to what the drawer can show. |
@@ -173,7 +181,7 @@ engine switches to demo mode and talks to no API.
 | `replay/timeline.js` | 193 | The timeline: one lane per session. |
 | `scene/blocks.js` | 32 | Building blocks: materials, rounded boxes, cylinders, rugs, canvas textures. |
 | `scene/lights.js` | 35 | Sun, sky light and the room lamps (per-room night lighting on the company floor). |
-| `scene/quality.js` | 77 | Graphics quality: Auto (the default), Low, Medium or High, each viewer's own choice (Settings → Display). |
+| `scene/quality.js` | 78 | Graphics quality: Auto (the default), Low, Medium or High, each viewer's own choice (Settings → Display). |
 | `scene/renderer.js` | 91 | Renderer, cameras, orbit controls, post-processing and environment light. |
 | `ui/activity.js` | 301 | The activity column and the session list. |
 | `ui/ai-accounts.js` | 270 | The other AI tools' accounts, in the plan card under Claude's (server/codex-accounts.mjs, antigravity-accounts.mjs): Codex and Antigravity IDE, each with its accounts (usage, the one in use, out until when), adding one, using another, and switching by itself when the one in use runs out. |
@@ -185,8 +193,8 @@ engine switches to demo mode and talks to no API.
 | `ui/clip-music.js` | 122 | The clip's music: an original lo-fi loop made right here, nothing borrowed (no samples, no files): a Rhodes-like FM electric piano on Fmaj9 – Em7 – Dm9 – G13, a round bass, a swung boom-bap kit, a soft pentatonic lead, vinyl crackle and a small Schroeder reverb. |
 | `ui/denied-card.js` | 46 | "Hộp lệnh bị chặn" (server/index.mjs onDenied): the card in the group chat for a call auto mode refused: who, what, why. |
 | `ui/event-text.js` | 125 | How events read on screen: actions per event type, verbs, bubble text, streamer mode. |
-| `ui/group-chat-view.js` | 912 | The group chat's window (the conversation: group-chat.js), drawn after the Vietnamese messenger's group chat on a phone (its own web CSS and string table, and a 2026 screenshot of the app, for the colours, sizes and words): the blue gradient bar with the back chevron, the group's name and "👥 N thành viên", call, video and ☰; the pinned message under it; the conversation on a lavender-grey ground, gathered at the bottom like the app's, the others' white bubbles on the left (the name at the top inside the first of a run, the face beside it, the time inside the last), yours pale blue on the right with who has seen it; dark pills for the time lines, white ones for what the group does; "Tin nhắn mới" where you stopped reading; replies quoting what they answer; a recalled message's "Tin nhắn đã được thu hồi"; the ♡ on a bubble's corner and a small pill once someone reacts (hover a bubble for the six, a reply and, on yours, recall); polls and reminders as cards in the middle; "… đang soạn tin"; the input bar: stickers and emoji, "Tin nhắn", ••• (a poll, @ someone), the mic and a photo, or send once you type; writing to Claude, a prompt helper over it. |
-| `ui/group-chat.js` | 210 | The company group chat, on the page (the window: group-chat-view.js; the people and what they say: src/shared/chat-engine.js). |
+| `ui/group-chat-view.js` | 914 | The group chat's window (the conversation: group-chat.js), drawn after the Vietnamese messenger's group chat on a phone (its own web CSS and string table, and a 2026 screenshot of the app, for the colours, sizes and words): the blue gradient bar with the back chevron, the group's name and "👥 N thành viên", call, video and ☰; the pinned message under it; the conversation on a lavender-grey ground, gathered at the bottom like the app's, the others' white bubbles on the left (the name at the top inside the first of a run, the face beside it, the time inside the last), yours pale blue on the right with who has seen it; dark pills for the time lines, white ones for what the group does; "Tin nhắn mới" where you stopped reading; replies quoting what they answer; a recalled message's "Tin nhắn đã được thu hồi"; the ♡ on a bubble's corner and a small pill once someone reacts (hover a bubble for the six, a reply and, on yours, recall); polls and reminders as cards in the middle; "… đang soạn tin"; the input bar: stickers and emoji, "Tin nhắn", ••• (a poll, @ someone), the mic and a photo, or send once you type; writing to Claude, a prompt helper over it. |
+| `ui/group-chat.js` | 211 | The company group chat, on the page (the window: group-chat-view.js; the people and what they say: src/shared/chat-engine.js). |
 | `ui/icons.js` | 85 | Stroke icons (24 px grid) and the icon helper. |
 | `ui/image-view.js` | 28 | Images in the feed: a session that read, wrote or edited an image gets a thumbnail on that line (activity.js), and a click opens it here, large, over the office (the server serves it by id: GET /api/image). |
 | `ui/lite.js` | 144 | The 2D view: every session as a row, no 3D (the office keeps a frame a second behind it). |
@@ -195,7 +203,7 @@ engine switches to demo mode and talks to no API.
 | `ui/models.js` | 44 | "Model: người điều phối và subagent" (Settings → More; server/models.mjs): the model a Claude session runs on, the one its subagents run on, always that one or only when Claude doesn't pick, and the note asking Claude to split big tasks. |
 | `ui/notify.js` | 64 | Notifications on this phone (Web Push: server/push.mjs sends them, public/sw.js shows them): Claude's answers in the group chat and an approval waiting, even with the office closed and the phone locked. |
 | `ui/permissions.js` | 150 | Approve / deny cards and Claude's questions. |
-| `ui/phone.js` | 94 | The office on a phone: an app-like layout for small screens, upright or held sideways. |
+| `ui/phone.js` | 95 | The office on a phone: an app-like layout for small screens, upright or held sideways. |
 | `ui/photo.js` | 138 | Photo mode: the office alone over the whole window, the camera free (any angle, closer or further, pan with the right button), then a PNG at the screen's size, Full HD or 4K. |
 | `ui/pins.js` | 63 | "Ghi nhớ cho Claude" (server: /api/pins, /hook/start): what you want a conversation to keep in mind, said to Claude again each time Claude Code compacts it. |
 | `ui/portraits.js` | 64 | Portraits of the two character looks for Settings → Characters: two people in each look, drawn by the office's own renderer (same materials, light and tone mapping, so they match what you will see) into a canvas, the first time the tab opens. |
@@ -206,7 +214,7 @@ engine switches to demo mode and talks to no API.
 | `ui/stuck.js` | 97 | Stuck sessions ("Ngắt vòng lặp kẹt", server/loops.mjs): the card in the group chat (what repeats, Stop, a hint for Claude) and the row in Settings → More (on or off, after how many failures, after how many minutes of spending with nothing edited). |
 | `ui/task-sheet.js` | 98 | "Giao việc": giving Claude work from the group chat (server/tasks.mjs runs it on the Mac). |
 | `ui/timelapse.js` | 156 | A 15-second clip of the office to share: square (1080 × 1080) for a feed or vertical (1080 × 1920) for Reels, TikTok and Shorts, the camera turning slowly round the floor, people at four times their pace, the day running into the evening (a clock in the corner from 8:00 to 23:00, the lights coming on at six), a title at the start and the day's numbers over the last two and a half seconds, with an original lo-fi tune under it (clip-music.js; it can be turned off). |
-| `ui/tips.js` | 115 | The first visit: a short tour of what you can click. |
+| `ui/tips.js` | 116 | The first visit: a short tour of what you can click. |
 | `ui/topbar.js` | 232 | Phone modal, notifications, the night switch. |
 | `ui/undo-view.js` | 55 | "Hoàn tác lượt cuối" (server/undo.mjs): in the session drawer, what undoing the last turn would do to each file, two clicks to do it, then what was done and "Tell Claude" (it doesn't know its files were put back otherwise). |
 | `ui/vault.js` | 165 | "Kho lịch sử" (server/vault.mjs): every conversation's words, kept after Claude Code deletes its transcript (30 days by default). |
@@ -216,7 +224,7 @@ engine switches to demo mode and talks to no API.
 | `world/backdrops/city.js` | 306 | The city backdrop: street grid, buildings, rooftops, lamps and traffic. |
 | `world/backdrops/countryside.js` | 186 | Countryside backdrop: rice paddies, dikes, a river, a bridge, a village. |
 | `world/backdrops/eat-com.js` | 304 | … |
-| `world/backdrops/index.js` | 49 | Choosing the backdrop: city, countryside or beach. |
+| `world/backdrops/index.js` | 48 | Choosing the backdrop: city, countryside or beach. |
 | `world/backdrops/shared.js` | 82 | Pieces shared by the countryside and beach backdrops. |
 | `world/backdrops/shop-cong.js` | 339 | Cộng Cà Phê (Hà Nội, 2007: the first one on Triệu Việt Vương; 75 in Vietnam in 2026, most in Hà Nội and Ho Chi Minh City), as its street shops look: an army-green front with the name in warm white letters on it, CỘNG big and CÀ PHÊ small beside it, olive window frames, wooden slats behind the glass, a little roof of terracotta tiles over the door, a plank over it painted "Ở ĐÂY CÓ BÁN CÀ PHÊ", the round wooden board with the hours (7:00–23:00), and out on its bracket the white box with the logo: CỘNG in olive over a red bar. |
 | `world/backdrops/shop-dmx.js` | 379 | Điện Máy Xanh (dienmayxanh.com), the appliance chain of the Thế Giới Di Động group, as its shops look in Vietnam in 2026: the long sky-blue sign with the mark in a yellow circle (a runner made of slanted squares, a round head) and "Điện máy" then "XANH" in yellow, leaning forward, the second word heavy capitals; posters on the glass (máy lạnh for the hot season, trả góp 0%); inside, the TV wall at the back with the screens lit, front-loading washing machines on an island, a row of fridges, split air conditioners along the wall with yellow price cards, stand fans turning by the window, rice cookers and air fryers on a table, two massage chairs someone is always trying, and the till in blue and yellow; staff in blue; open 8:00–22:00. |

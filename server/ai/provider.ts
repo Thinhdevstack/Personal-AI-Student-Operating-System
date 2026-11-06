@@ -17,7 +17,7 @@ export interface AIProvider {
   embed(texts: string[]): Promise<number[][]>;
 }
 
-export type ChatProviderId = 'openai' | 'gemini' | 'deepseek' | 'mock';
+export type ChatProviderId = 'openai' | 'gemini' | 'deepseek' | 'ollama' | 'mock';
 export interface TutorContext { instructions: string; input: { role: string; content: string }[] }
 export interface TutorResponse { answer: string; basis: 'materials' | 'general' | 'insufficient'; sourceIds: string[]; model?: string; isMock?: boolean }
 export interface ChatProvider { readonly providerId?: ChatProviderId; readonly chatModel: string; readonly isMock: boolean; chat(context: TutorContext): Promise<TutorResponse> }

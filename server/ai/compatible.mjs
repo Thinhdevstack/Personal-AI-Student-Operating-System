@@ -10,7 +10,7 @@ export function createCompatibleChatProvider({ id, apiKey, model, client, fetch:
   let sdk = client;
   return {
     providerId: id, chatModel: model, isMock: false,
-    async chat(context) {
+    async chat(context, { signal } = {}) {
       try {
         if (!sdk) {
           if (!apiKey) throw new StudentError('aiKeyMissing');
@@ -20,7 +20,7 @@ export function createCompatibleChatProvider({ id, apiKey, model, client, fetch:
           model, messages: [{ role: 'system', content: context.instructions }, ...context.input],
           max_tokens: AI_CONFIG.maxOutputTokens,
           ...(id === 'deepseek' ? { thinking: { type: 'disabled' }, response_format: { type: 'json_object' } } : { response_format: { type: 'json_schema', json_schema: { name: TUTOR_FORMAT.name, strict: true, schema: TUTOR_FORMAT.schema } }, reasoning_effort: 'low' }),
-        });
+        }, { signal });
         const choice = response.choices?.[0];
         if (choice?.message?.refusal || choice?.finish_reason === 'content_filter') throw new StudentError('aiRefused', 422);
         if (choice?.finish_reason !== 'stop') throw new StudentError('aiIncomplete', 502);
