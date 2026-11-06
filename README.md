@@ -629,7 +629,7 @@ Then open <http://localhost:4310>.
 npm install
 npm run dev                   # Turbopack with hot reload: http://localhost:4310/?demo
 npm run lint && npm run typecheck && npm test
-npm run build && npm run test:e2e   # all of them (CI: the @smoke ones on every push, all of them split across runners in e2e-full.yml)
+npm run build && npm run test:e2e   # default suite (CI: @smoke on PRs/main; full sharded suite runs manually via e2e-full.yml)
 node scripts/build-demo.mjs   # the static online demo, into demo-site/
 node scripts/record-gif.mjs   # this README's GIF, recorded from a running office
 npm run smoke                 # starts the built server and checks it works on this system
