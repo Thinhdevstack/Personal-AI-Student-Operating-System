@@ -31,7 +31,7 @@ async function readObject(req) {
   } catch { throw new StudentError('invalidInput'); }
 }
 
-export function createStudentRoutes({ service, authorized, sameOrigin }) {
+export function createStudentRoutes({ service, authorized, sameOrigin, demoSeed }) {
   let uploads = 0;
   return async function studentRoutes(req, res, url) {
     try {
@@ -39,6 +39,12 @@ export function createStudentRoutes({ service, authorized, sameOrigin }) {
       if (!['GET', 'HEAD'].includes(req.method) && !sameOrigin(req)) throw new StudentError('forbidden', 403);
       const parts = url.pathname.split('/').filter(Boolean).slice(2);
       const [kind, id, child] = parts;
+      if (req.method === 'POST' && parts.length === 2 && kind === 'demo' && id === 'seed') {
+        if (!demoSeed || !service.aiSettings().studentDemo) throw new StudentError('notFound', 404);
+        return send(res, 200, await demoSeed());
+      }
+      if (req.method === 'GET' && parts.length === 1 && kind === 'ai') return send(res, 200, service.aiSettings());
+      if (req.method === 'GET' && parts.length === 2 && kind === 'ai' && id === 'local') return send(res, 200, await service.localAIStatus());
       if (kind === 'memories' && parts.length <= 2) {
         const target = { scope: url.searchParams.get('scope'), courseId: url.searchParams.get('courseId') };
         if (parts.length === 1 && req.method === 'GET') return send(res, 200, service.memories(target));
@@ -47,7 +53,17 @@ export function createStudentRoutes({ service, authorized, sameOrigin }) {
         if (parts.length === 2 && req.method === 'DELETE') { service.deleteMemory(id, target); return send(res, 200, { ok: true }); }
       }
       if (req.method === 'GET' && parts.length === 1 && kind === 'snapshot') return send(res, 200, service.snapshot());
-      if (parts.length === 1 && kind === 'chat' && req.method === 'POST') return send(res, 200, await service.sendChat(await readObject(req)));
+      if (parts.length === 1 && kind === 'chat' && req.method === 'POST') {
+        const input = await readObject(req), controller = new AbortController();
+        const disconnect = () => { if (!res.writableEnded) controller.abort(); };
+        res.on('close', disconnect);
+        try { return send(res, 200, await service.sendChat(input, { signal: controller.signal })); }
+        finally { res.off('close', disconnect); }
+      }
+      if (parts.length === 3 && kind === 'courses' && child === 'cancel' && req.method === 'POST') {
+        const input = await readObject(req);
+        return send(res, 200, service.cancelChat(id, input.requestId));
+      }
       if (parts.length === 3 && kind === 'courses' && child === 'chat' && req.method === 'GET') return send(res, 200, service.chatHistory(id, url.searchParams.get('conversationId')));
       if (parts.length === 1 && req.method === 'POST') {
         if (kind === 'semesters') return send(res, 201, service.createSemester(await readObject(req)));

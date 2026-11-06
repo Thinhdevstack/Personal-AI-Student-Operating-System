@@ -1,8 +1,11 @@
 import { request } from '@/features/academic/api';
-import type { ChatHistory } from './types';
+import type { ChatHistory, ChatProviderId, AISettings, LocalAIStatus } from './types';
 import type { MemoryTarget, SavedMemory, MemorySource } from './types';
 
-export interface ChatRequest { courseId: string; message: string; requestId: string; language: 'en' | 'vi'; conversationId?: string }
+export interface ChatRequest { courseId: string; message: string; requestId: string; language: 'en' | 'vi'; conversationId?: string; provider?: ChatProviderId; mode?: 'materials' | 'expanded'; webSearch?: boolean }
+export const localAIStatus = (signal?: AbortSignal) => request<LocalAIStatus>('ai/local', { signal });
+export const cancelChat = (courseId: string, requestId: string) => request<{ cancelled: boolean }>(`courses/${courseId}/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requestId }) });
+export const aiSettings = (signal?: AbortSignal) => request<AISettings>('ai', { signal });
 export const chatHistory = (courseId: string, signal?: AbortSignal) => request<ChatHistory>(`courses/${courseId}/chat`, { signal });
 export const sendChat = (body: ChatRequest, signal?: AbortSignal) => request<ChatHistory>('chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body), signal });
 

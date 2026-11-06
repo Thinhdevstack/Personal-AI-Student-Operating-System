@@ -10,7 +10,7 @@
 // under chat.reply that someone answers with), pin, key (two pages telling the same moment make one message).
 import * as THREE from 'three';
 import { state } from '../core/state.js';
-import { STATIC, officeNow, replay } from '../core/env.js';
+import { STATIC, STUDENT_LEARNING, officeNow, replay } from '../core/env.js';
 import { dn, npcs, sessions, workers } from '../people/workers.js';
 import { sfx } from '../audio/sfx.js';
 import { DEMO } from '../demo/demo.js';
@@ -66,13 +66,13 @@ export function chatApply(d) {
 }
 /** The whole conversation again (on connecting, and after the live stream came back). */
 export async function chatLoad() {
-  if (DEMO) return;
+  if (DEMO || STUDENT_LEARNING) return;
   const r = await fetch(`/api/chat${TOKEN ? `?k=${encodeURIComponent(TOKEN)}` : ''}`).then((x) => x.json()).catch(() => null);
   if (!r?.ok) return;
   chat.msgs = r.msgs || []; chat.pinned = r.pinned || null; chat.typing = r.typing || [];
   emit('all');
 }
-const post = (body) => fetch(`/api/chat${TOKEN ? `?k=${encodeURIComponent(TOKEN)}` : ''}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.body?.cancel()).catch(() => null);   // (the answer is not needed, but unread it would stay in memory)
+const post = (body) => STUDENT_LEARNING ? Promise.resolve(null) : fetch(`/api/chat${TOKEN ? `?k=${encodeURIComponent(TOKEN)}` : ''}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.body?.cancel()).catch(() => null);   // (the answer is not needed, but unread it would stay in memory)
 // what you do: to the server (or the demo's engine)
 export function chatSend(text, opts = {}) { if (engine) engine.send({ text, sticker: opts.sticker ?? null, replyTo: opts.replyTo || null }); else post({ op: 'send', text, sticker: opts.sticker ?? null, replyTo: opts.replyTo || null }); }
 export function react(m, emoji) { if (engine) engine.react(m.id, 'me', emoji); else post({ op: 'react', id: m.id, emoji }); }
@@ -193,6 +193,7 @@ export function chatPhoto(obj) {
 export function chatAct(what) { if (what === 'meeting') ringBell(); else if (what === 'tea') teatime(true); }
 
 export function setup() {
+  if (STUDENT_LEARNING) return;
   if (STATIC || new URLSearchParams(location.search).has('demo')) {   // the demo (demo.js sets DEMO later in the setups): the engine runs here, kept in this browser
     engine = createChatEngine({
       tr, now: () => officeNow().getTime(),

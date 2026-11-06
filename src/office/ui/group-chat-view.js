@@ -9,7 +9,7 @@
 // on yours, recall); polls and reminders as cards in the middle; "… đang soạn tin"; the input bar: stickers and emoji,
 // "Tin nhắn", ••• (a poll, @ someone), the mic and a photo, or send once you type; writing to Claude, a prompt helper over
 // it. No brand, logo, sticker art or sound of theirs: the stickers are drawn here, the sound is the office's own.
-import { $, STATIC, el } from '../core/env.js';
+import { $, STATIC, STUDENT_LEARNING, el } from '../core/env.js';
 import { state } from '../core/state.js';
 import { icon } from './icons.js';
 import { avatar } from './chat-avatars.js';
@@ -885,6 +885,7 @@ function build() {
   $('app').append(root);
 }
 export function toggle(on = !chat.open) {
+  if (STUDENT_LEARNING) { $('demo-course-picker')?.focus(); return; }
   if (!root) build();
   if (!on) readTo = [...chat.msgs].reverse().find((m) => m.kind !== 'sys')?.id || null;   // (where to draw "Tin nhắn mới" next time)
   root.hidden = !on; setOpen(on); $('btn-chat')?.setAttribute('aria-pressed', String(on));
@@ -905,6 +906,7 @@ function fitKeyboard() {
   if (document.activeElement === input) body.scrollTop = body.scrollHeight;
 }
 export function setup() {
+  if (STUDENT_LEARNING) return;
   window.visualViewport?.addEventListener('resize', fitKeyboard); window.visualViewport?.addEventListener('scroll', fitKeyboard);
   $('btn-chat')?.addEventListener('click', () => toggle());
   addEventListener('keydown', (e) => { if (e.key === 'Escape' && chat.open && !e.defaultPrevented) toggle(false); });

@@ -1,13 +1,9 @@
 name: E2E (all tests)
 
-# Every end-to-end test, not just the smoke ones (ci.yml), split across runners: a runner has no GPU, so each test draws
-# the whole 3D office in software and takes one to three minutes. Every night and by hand (Actions → E2E → Run workflow),
-# not on pull requests: in software rendering some tests run past their time limit (about 45 of them, 2/11/2026), so a
-# red run here says "look at the report", not "this pull request broke something". A batch of pull requests that each
-# passed on its own once broke six tests together (1/11/2026): the nightly run is what catches that.
+# Full end-to-end suite, split across software-rendered runners. Twelve shards can consume substantial included
+# Actions usage, so run this explicitly from Actions → E2E (all tests) → Run workflow when a full regression is needed.
+# Normal pull-request/main smoke checks remain enabled in ci.yml. Do not schedule this expensive suite every night.
 on:
-  schedule:
-    - cron: '0 19 * * *'   # 02:00 in Vietnam
   workflow_dispatch:
 
 concurrency:

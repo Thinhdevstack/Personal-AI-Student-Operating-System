@@ -321,3 +321,60 @@ M1–M5 là roadmap MVP hiện tại; không có planner, quiz, learning-progres
 Bản thật local không cần key cho quản lý học kỳ/môn, upload/download PDF, CRUD memory và Office. Chế độ bình thường `AI_OFFLINE_MODE=0`, không tự bật mock. Processing/index embeddings, semantic search và Tutor vẫn cần key; chưa xác minh OpenAI thật. Khi có key, reprocess các PDF offline và kiểm tra một câu hỏi/live activity thật.
 
 Giới hạn bốn Tutor chỉ là cap actor hiển thị trong một cửa sổ Office, một actor cho mỗi môn có activity gần đây. Môn thứ năm có thể thay actor cũ; backend vẫn xử lý bình thường. Không giới hạn số môn/câu hỏi/conversation và không xóa dữ liệu. Hub giữ tối đa 32 trạng thái hình ảnh tạm thời, không phải 32 hồ sơ môn trong SQLite. Khi không có hoạt động AI, không có Student Tutor để hiển thị là trạng thái bình thường.
+
+## 13. Bổ sung OpenAI, Gemini và DeepSeek
+
+Baseline `c1f24ef` trên main sạch. Triển khai local ở `feat/multi-provider-ai`; không tự commit/push/merge. Reuse OpenAI SDK đang cài, không thêm dependency. Không sửa legacy group chat hoặc actor limit M5.
+
+### Provider và embeddings
+
+- `server/ai/providers.mjs`: registry tách chat và embedding provider. `AI_CHAT_PROVIDER` chọn mặc định, UI chọn provider từng câu hỏi. Không fallback khi thiếu key/quota/model lỗi. Capability response chỉ có id/label/model/configured/isMock và embedding identity; không có key.
+- OpenAI giữ Responses/strict schema/store:false hiện có. `compatible.mjs` dùng OpenAI SDK với upstream cố định và key riêng: Gemini `/v1beta/openai/chat/completions` với JSON Schema/reasoning low; DeepSeek `/chat/completions` với JSON object và thinking disabled. Cả hai dùng timeout 30 giây, maxRetries=0, output 4096 tokens; bỏ reasoning/tool calls khỏi flow, không trả raw error. Context chung có JSON instruction/example; validateTutorAnswer vẫn whitelist citation và giới hạn answer.
+- `gemini.mjs`: native `batchEmbedContents`, x-goog-api-key trong header, outputDimensionality rõ, batch 64, timeout và body limit 8 MiB, kiểm tra số vector/dimensions/finite values/norm. Chuẩn hóa vector và lưu model identity `gemini/<model>` để không nhầm với OpenAI. Dùng text chunks hiện có, không upload nguyên PDF.
+- `AI_EMBEDDING_PROVIDER` chỉ nhận openai/gemini; mặc định openai để giữ index cũ. Chat DeepSeek có thể kết hợp embeddings Gemini hoặc OpenAI. Chỉ có key Gemini vẫn dùng trọn pipeline nếu cấu hình cả hai provider là gemini. Đổi chat provider không reindex; đổi embedding identity cần Reprocess PDF.
+- Model mặc định được đối chiếu tài liệu chính thức: OpenAI giữ gpt-5-mini; Gemini gemini-3.6-flash, embeddings gemini-embedding-2; DeepSeek deepseek-flash. Có thể override bằng env. Không gọi API để dò model hoặc tự dùng key khác.
+
+### API, persistence và UI
+
+- Migration mới `005-chat-provider.sql`: thêm `chat_turns.provider`, default openai cho lịch sử cũ, các turn đã đánh dấu isMock chuyển mock. Không đổi source/memory snapshot hoặc xóa history.
+- `POST /api/student/chat` thêm optional `provider` (openai/gemini/deepseek; mock chỉ cho injection/offline legacy). Nếu retry/replay bỏ provider thì giữ provider đã lưu, kể cả khi server default đổi. Dùng lại requestId với provider khác báo conflict. Completed legacy mock vẫn replay được sau tắt offline vì không gọi provider.
+- `GET /api/student/ai`: cùng auth/host guard với API Student, không cho client truyền key/base URL/model tùy ý. Missing chat key bị từ chối trước embedding request để không tốn lượt gọi ở provider khác.
+- Course Chat có selector, trạng thái key thiếu, embedding label, per-answer provider/model, en/vi và mobile. Lựa chọn lưu theo course trong localStorage (chỉ provider ID). UI nói rõ context/history/memory gửi đến provider được chọn. Retry/uncertain request giữ provider gốc.
+- Offline mode rõ ràng mô phỏng cả ba lựa chọn và embeddings; không chứng minh kết nối thật. No-key vẫn dùng academic/material upload-download/memory như trước, chat bị chặn bằng trạng thái cấu hình.
+
+Tài liệu: [OpenAI structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses), [Gemini OpenAI compatibility](https://ai.google.dev/gemini-api/docs/openai), [Gemini embeddings](https://ai.google.dev/gemini-api/docs/embeddings), [DeepSeek JSON output](https://api-docs.deepseek.com/guides/json_mode/), [DeepSeek models](https://api-docs.deepseek.com/quick_start/pricing/).
+
+QA: production build, typecheck và lint đạt. Bộ unit test chạy với concurrency=2 đạt 198 pass, 3 skip, 0 fail; giới hạn concurrency tránh các timeout ở test legacy khi chạy cùng build. Tổng cộng 11 kịch bản browser đạt qua các lượt chạy, gồm chọn ba provider, retry giữ provider/requestId, lịch sử và giao diện mobile tiếng Việt. Hai kịch bản Office 3D bị timeout khi chạy song song đã đạt khi chạy lại với một worker. Đã kiểm tra ảnh desktop/mobile. Chưa có key thật nên chưa xác minh live ở cả ba nhà cung cấp.
+
+Đã tạo `.env.local` từ template với các key để trống; file được Git ignore. SQLite local được sao lưu dưới `data/tooling/provider-db-backup-*` trước khi chạy bản production mới. Chưa commit/push thay đổi provider.
+
+## 14. Chế độ mô phỏng học tập độc lập
+
+Baseline `058afcd` đã commit phần multi-provider. Bổ sung chế độ Student demo có launcher riêng, tách với demo Office `?demo` cũ. Hướng dẫn vận hành: [STUDENT-DEMO.md](STUDENT-DEMO.md).
+
+- `scripts/student-demo.mjs` bật cờ server `OFFICE_STUDENT_DEMO=1`. `server/env.mjs` áp cấu hình demo sau dotenv, trước các module sử dụng env. Buộc mock cả chat/embeddings, bỏ key khỏi process, tách `OFFICE_DATA_DIR` và thư mục Claude, tắt usage/accounts/vault/translation. Cổng mặc định 4311, loopback. Build demo `.next-student-demo/`, dev `.next-student-demo-dev/`, dữ liệu học tập `data/student-demo/student/`.
+- Server bỏ phát hiện phiên và tài khoản Claude trong chế độ này, chặn các đường dẫn legacy tạo task/chat/RC/account, không khởi động tác vụ kiểm tra hệ thống ở listener demo. Chế độ thật giữ hành vi cũ. Cờ UI lấy từ header do custom server ghi đè và metadata `/api/student/ai`; không dựa vào query/localStorage để cấp quyền tạo mẫu.
+- `StudentDemoPanel` dùng chung ở Academic và Office: nhãn mô phỏng, tạo mẫu, hướng dẫn. Trong Office có chọn môn và link mở đúng Course Chat trong tab mới; dùng chung API/lịch sử/provider/requestId với M3/M4. Tắt Team Chat cũ, tour Claude và thanh tab phiên Claude trên mobile chỉ trong Student demo.
+- `demo-seed.mjs` chỉ được khởi tạo ở demo/mock. Tạo học kỳ, hai môn, PDF thật có text trích xuất được và ba memory. Bảng mapping chỉ có trong DB demo, transaction SQLite và promise dùng chung chống tạo trùng khi lặp/concurrent. Xử lý PDF qua pipeline hiện có bằng mock embeddings; không gọi upstream. Không ghi dữ liệu academic thật.
+- M5 vẫn dùng một actor theo course, tối đa bốn actor; snapshot/SSE/poll nhận lifecycle backend bình thường, kể cả khi người dùng vô tình thêm `?demo`. Không giả lập phiên Claude. Mock response vẫn là trích đoạn theo mẫu, không mô phỏng chất lượng suy luận của model.
+- Mặc định đồ họa Low/Cozy, preference dùng namespace riêng; bỏ polling máy và kiểm tra cập nhật Claude ở phía Office. Số lượt vẽ frame lấy mẫu giảm 752 xuống 413 trong môi trường SwiftShader; không kết luận FPS thực. Bố cục mobile bỏ khoảng trống dành cho activity sheet cũ.
+
+QA: 203 unit test pass, 3 skip, 0 fail với concurrency=2; build production demo, lint, typecheck và module map đạt. Sáu kịch bản browser đạt: một luồng Student demo desktop/mobile (seed lặp, ba provider, retry, memory, history, actor 3D không Claude) và năm smoke hồi quy Academic/Tutor/Memory/multi-provider ở mode thường. Đã kiểm tra ảnh. Khởi động thêm server normal trong vùng dữ liệu/home QA riêng, xác nhận thiếu key không tự bật mock, seed route trả 404 và header giả không bật giao diện demo. Không xác minh AI thật vì đây là bản mô phỏng. Chưa commit/push/merge/deploy thay đổi này.
+
+## 15. Học tập bằng Ollama local
+
+Hướng dẫn: [LOCAL-AI.md](LOCAL-AI.md). Nhánh hiện tại vẫn là `feat/multi-provider-ai`; thay đổi mô phỏng từ lượt trước được giữ, chưa commit/push/merge/deploy.
+
+- Launcher `student-local.mjs`: cổng 4312, loopback, dùng vùng dữ liệu học tập thường. Cấu hình sau dotenv chọn Ollama chat/embedding và tắt mock. Giữ provider API cũ và demo riêng. Office dùng shell học tập, bỏ yêu cầu phiên Claude; Academic không tải cảnh 3D.
+- Adapter native Ollama: URL HTTP loopback, model chat/embedding riêng, status/model check, lỗi an toàn, timeout, hủy và một inference đồng thời. Nhận JSON hoàn chỉnh và kiểm chứng citations trước khi hiển thị. Context/history được cắt gọn cho model local; chưa stream token ra UI.
+- Hai cách trả lời lưu theo turn: `materials` và `expanded`. Retry/replay giữ provider/mode; kiến thức ngoài file có nhãn, chế độ chỉ tài liệu chặn câu trả lời được model đánh dấu general. Đây không phải bộ chứng minh tính đúng của mọi phát biểu trong lời giải.
+- Migration `006-local-tutor.sql` giữ byte vector, lịch sử và provider cũ, thêm Ollama cùng khóa chỉ mục đa provider/model/dimensions/version. Khi xử lý lại, giữ chunk ID và chỉ mục của model cũ nếu nội dung không đổi; thất bại không xóa chỉ mục ready cũ. UI cho biết PDF cần lập chỉ mục lại.
+- Kéo thả một PDF dùng chung validation và pipeline với input file. Giới hạn 20 MiB; chưa có OCR, Word hoặc PPT. Xóa helper tạo PDF trùng trong e2e, dùng fixture PDF có xref hợp lệ chung; không xóa file source hoặc dữ liệu khi chưa đủ bằng chứng không còn dùng.
+- Kiểm tra render loop: đã có giới hạn FPS và auto quality. Tái sử dụng Cozy/Low cho local; tab ẩn không cập nhật hoặc vẽ cảnh trừ khi ghi hình. Chưa đưa ra kết luận FPS trên GPU thật. Đã sửa CSS trạng thái Ollama trong Office sau khi xem ảnh mobile.
+- Tìm web chưa cấu hình: công tắc bị khóa, API từ chối yêu cầu, không tạo nguồn web giả. Đã đánh giá SearXNG JSON API; chưa có dịch vụ search trên máy nên chưa tích hợp fetch trang ngoài hoặc mở đường dẫn URL tùy ý.
+
+QA tự động: 213 pass, 3 skip, 0 fail trong lượt full unit cuối; lint, typecheck, production build và module map đạt. Mười bài riêng cho Ollama gồm giao thức HTTP, lỗi/timeout/hủy, RAG theo môn, chế độ trả lời, tách phần kiến thức bổ sung, giữ chỉ mục, migration và PDF mẫu không tràn dòng. Bảy kịch bản browser đã đạt qua các lượt chạy: local fixture, demo và năm hồi quy Academic/Tutor/Memory/provider. Một lượt hook timing bị chậm khi chạy đồng thời browser đã qua khi chạy riêng và lượt full cuối. Tình huống retry sau mất mạng được kiểm tra lại sau thêm giới hạn chờ khôi phục lịch sử. Browser local dùng HTTP fixture, không phải bằng chứng model thật.
+
+Trước khi mở server local, đã sao lưu database normal và demo dưới `data/tooling/local-ai-backup-*`. Normal có 0 môn/0 PDF; demo có 2 môn/2 PDF, không tự chuyển dữ liệu mẫu sang vùng thật. Cài Ollama và tải model trên ổ C được người dùng đồng ý rõ ràng; báo cáo suy luận thật được lưu riêng sau khi model sẵn sàng.
+
+Đã cài Ollama 0.40.14, qwen3:4b và embeddinggemma:latest trên ổ C, xóa bộ cài tạm. Bốn câu thật với PDF đã xác nhận đọc đủ hoàn tất trong khoảng 19–31 giây sau nạp model, ghi ở `data/tooling/ollama-real-inference.json`. OOP/CSDL dẫn đúng nguồn; câu ngoài file ở mode tài liệu báo thiếu căn cứ. Phần kiến thức mở rộng vẫn có lỗi Java record, đã ghi rõ trong [LOCAL-AI.md](LOCAL-AI.md), không đánh đồng kiểm thử kỹ thuật thành công với độ đúng học thuật. Ollama mode mở rộng dùng thêm trường nội bộ `additionalKnowledge` và server tách nhãn trước khi lưu; không đổi hợp đồng lịch sử chung hoặc chạy web giả.

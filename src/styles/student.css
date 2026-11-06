@@ -97,6 +97,9 @@
 .student-material-actions button { font-size: 11px; padding: 4px 8px; }
 
 .course-chat { min-width: 0; }
+.student-provider-controls { display: grid; gap: 8px; margin: 16px 0; }
+.student-provider-controls select { max-width: 460px; }
+.student-provider-controls small { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }
 .student-memory-list { list-style: none; padding: 0; }
 .student-memory-list > li { border: 1px solid var(--line-2); border-radius: 10px; padding: 18px; margin: 14px 0; }
 .student-memory-content { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; color: var(--ink) !important; }
@@ -135,3 +138,6 @@
   .student-chat-compose > div { flex-wrap: wrap; }
 }
 
+.student-dropzone { padding: 24px; margin: 14px 0; border: 2px dashed var(--line-2); border-radius: 12px; text-align: center; color: var(--muted); }
+.student-dropzone.is-dragging { border-color: var(--accent-hi); background: var(--accent-soft); color: var(--ink); }
+.student-index-hint { display: block; color: var(--muted); }

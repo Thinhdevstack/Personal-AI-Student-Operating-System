@@ -57,13 +57,13 @@ export function createOpenAIProvider(options = {}) {
         return embeddings;
       } catch (error) { throw aiError(error); }
     },
-    async chat(context) {
+    async chat(context, { signal } = {}) {
       try {
         const response = await client().responses.create({
           model: chatModel, instructions: context.instructions, input: context.input,
           store: false, max_output_tokens: AI_CONFIG.maxOutputTokens,
           text: { format: TUTOR_FORMAT },
-        });
+        }, { signal });
         if (response.output?.some((item) => item.content?.some((part) => part.type === 'refusal'))) throw new StudentError('aiRefused', 422);
         if (response.status !== 'completed' || !response.output_text) throw new StudentError('aiIncomplete', 502);
         let answer;

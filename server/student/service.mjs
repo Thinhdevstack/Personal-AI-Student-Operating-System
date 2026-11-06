@@ -3,7 +3,7 @@ import { openStudentDatabase } from './database.mjs';
 import { documentStorage, StudentError, validatePdf } from './storage.mjs';
 import { extractPdf } from '../documents/pdf.mjs';
 import { createChunks } from '../documents/chunking.mjs';
-import { createOpenAIProvider } from '../ai/openai.mjs';
+import { createAIProviders, registryForProvider } from '../ai/providers.mjs';
 import { searchCourseMaterials } from '../ai/retrieval.mjs';
 import { createCourseChat } from '../ai/chat.mjs';
 import { createMemoryService } from '../ai/memory.mjs';
@@ -20,14 +20,18 @@ function date(value) {
   return value;
 }
 const now = () => new Date().toISOString();
-const publicDocument = ({ storagePath, ...document }) => document;
 
 export function createStudentService(dir, options = {}) {
   const db = openStudentDatabase(dir), storage = documentStorage(dir);
-  const aiProvider = options.aiProvider || createOpenAIProvider();
+  const aiRegistry = options.aiRegistry || (options.aiProvider ? registryForProvider(options.aiProvider) : createAIProviders());
+  const aiProvider = aiRegistry.embedding;
+  const embeddingId = aiProvider.providerId || (aiProvider.isMock ? 'mock' : 'openai');
+  const processing = new Set();
+  const publicDocument = ({ storagePath, ...doc }) => ({ ...doc, indexReady: !!db.prepare('SELECT 1 FROM chunk_embeddings e JOIN document_chunks c ON c.id=e.chunkId WHERE c.documentId=? AND e.provider=? AND e.model=? AND e.dimensions=? AND e.modelVersion=? LIMIT 1').get(doc.id, embeddingId, aiProvider.model, aiProvider.dimensions, aiProvider.version || '') });
+  if (options.studentDemo && !aiRegistry.isMock) { db.close(); throw new StudentError('aiMockDisabled'); }
   const memory = createMemoryService({ db });
   const activity = options.activity || createStudentActivity();
-  const chat = createCourseChat({ db, aiProvider, memory, activity });
+  const chat = createCourseChat({ db, aiProvider, memory, activity, aiRegistry });
 
   function semester(id) {
     const row = db.prepare('SELECT * FROM semesters WHERE id = ?').get(id);
@@ -61,6 +65,9 @@ export function createStudentService(dir, options = {}) {
     get aiProvider() { return aiProvider; },
     chatHistory: chat.history,
     sendChat: chat.send,
+    cancelChat: chat.cancel,
+    localAIStatus: () => aiRegistry.localStatus ? aiRegistry.localStatus() : { connected: false, chatReady: false, embeddingReady: false, models: [], error: 'ollamaUnavailable' },
+    aiSettings: () => ({ ...aiRegistry.settings(), studentDemo: options.studentDemo === true }),
     memories: memory.list,
     createMemory: memory.create,
     updateMemory: memory.update,
@@ -161,6 +168,8 @@ export function createStudentService(dir, options = {}) {
     async processDocument(id) {
       const doc = document(id);
       writableCourse(doc.courseId);
+      if (processing.has(id)) throw new StudentError('busy', 429);
+      processing.add(id);
 
       // Transition status to processing immediately
       db.prepare("UPDATE documents SET status = 'processing', processingError = NULL WHERE id = ?").run(id);
@@ -186,22 +195,26 @@ export function createStudentService(dir, options = {}) {
         // 4. Save chunks and embeddings atomically in transaction
         const time = now();
         db.transaction(() => {
-          // Clean up old chunks and embeddings if retrying
-          db.prepare('DELETE FROM document_chunks WHERE documentId = ?').run(id);
-
+          // Keep stable chunk IDs and indexes from other models when the extracted text is unchanged.
+          const previous = db.prepare('SELECT * FROM document_chunks WHERE documentId=?').all(id);
+          const retained = new Set();
           const insertChunk = db.prepare(`
             INSERT INTO document_chunks (id, documentId, courseId, pageNumber, chunkIndex, content, tokenCount, createdAt)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
           `);
           const insertEmbedding = db.prepare(`
-            INSERT INTO chunk_embeddings (chunkId, embedding, model, dimensions, modelVersion, createdAt)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO chunk_embeddings (chunkId, embedding, model, dimensions, modelVersion, createdAt, provider)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
           `);
 
           for (let i = 0; i < chunks.length; i++) {
             const chunk = chunks[i];
-            const chunkId = randomUUID();
-            insertChunk.run(
+            const old = previous.find((row) => row.pageNumber === chunk.pageNumber && row.chunkIndex === chunk.chunkIndex && row.content === chunk.content);
+            const chunkId = old?.id || randomUUID();
+            retained.add(chunkId);
+            if (!old) {
+              db.prepare('DELETE FROM document_chunks WHERE documentId=? AND pageNumber=? AND chunkIndex=?').run(id, chunk.pageNumber, chunk.chunkIndex);
+              insertChunk.run(
               chunkId,
               id,
               doc.courseId,
@@ -210,7 +223,8 @@ export function createStudentService(dir, options = {}) {
               chunk.content,
               chunk.tokenCount,
               time
-            );
+              );
+            }
 
             // Store embedding as Float32Array binary BLOB
             const floatArray = new Float32Array(embeddings[i]);
@@ -221,9 +235,11 @@ export function createStudentService(dir, options = {}) {
               aiProvider.model,
               aiProvider.dimensions,
               aiProvider.version || '',
-              time
+              time,
+              embeddingId
             );
           }
+          for (const row of previous) if (!retained.has(row.id)) db.prepare('DELETE FROM document_chunks WHERE id=?').run(row.id);
 
           // Mark document ready
           db.prepare(`
@@ -239,11 +255,11 @@ export function createStudentService(dir, options = {}) {
         const errorCode = err instanceof StudentError ? err.code : 'processingFailed';
         db.prepare(`
           UPDATE documents
-          SET status = 'failed', processingError = ?
+          SET status = ?, processingError = ?
           WHERE id = ?
-        `).run(errorCode, id);
+        `).run(doc.status === 'ready' ? 'ready' : 'failed', errorCode, id);
         throw err;
-      }
+      } finally { processing.delete(id); }
     },
 
     /**

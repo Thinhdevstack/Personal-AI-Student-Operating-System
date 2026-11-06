@@ -1,6 +1,6 @@
 // Settings popover: backdrop, floor plan, look, time, toggles.
 import { state } from '../core/state.js';
-import { $, LAYOUT, PLANS, STATIC } from '../core/env.js';
+import { $, LAYOUT, LAYOUT_KEY, PLANS, STATIC } from '../core/env.js';
 import { bubbleText } from './event-text.js';
 import { labels } from '../scene/renderer.js';
 import { subs, workers } from '../people/workers.js';
@@ -24,7 +24,7 @@ let btnLook;
 // switching the floor plan rebuilds the whole office, so the page reloads (sessions come back from the server)
 function setLayout(l) {
   if (l === LAYOUT || !PLANS.includes(l)) return;
-  try { localStorage.setItem('office-layout', l); } catch { /* storage blocked */ }
+  try { localStorage.setItem(LAYOUT_KEY, l); } catch { /* storage blocked */ }
   toast(tr({ pro: 'settings.toPro', hq: 'settings.toHq', cozy: 'settings.toCozy' }[l]));
   const u = new URL(location.href); u.searchParams.delete('layout'); setTimeout(() => location.replace(u), 250);
 }

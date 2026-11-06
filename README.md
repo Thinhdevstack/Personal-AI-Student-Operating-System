@@ -1,4 +1,8 @@
-# My Office
+# Personal AI Student Operating System
+
+Study with course PDFs and **Ollama running on your computer**, without an API key or Claude session. Install Ollama, pull `qwen3:4b` and `embeddinggemma:latest`, then run `npm run build:student-local` and `npm run start:student-local`. Open <http://localhost:4312/student?lang=vi> to create courses, drop PDFs, and ask questions using materials only or additional model knowledge. Web search is visibly unavailable until a search service is integrated. See [local AI setup and limitations](docs/LOCAL-AI.md).
+
+The project also retains the original My Office features described below.
 
 English · [Tiếng Việt](README.vi.md)
 
@@ -24,6 +28,17 @@ open <http://localhost:4310/?demo>. Or try it online, nothing to install: <https
 
 ## Quick start
 
+### Student learning simulation — no API key or Claude required
+
+Run `npm run build:student-demo` once, then `npm run start:student-demo`, and open <http://localhost:4311/?lang=vi>.
+For development, use `npm run dev:student-demo`. The demo has its own build and data directories; the normal app can keep running on port 4310.
+
+Click **Create sample data / Tạo dữ liệu mẫu**, choose a course and open its chat. Two sample courses include extractable PDFs and memory. Repeating the action reuses the same records. You can also add your own courses/PDFs. Keep Office in another tab to watch the course tutor's actual mock retrieval, memory and response lifecycle.
+
+The server forces mock chat/embeddings for all three provider choices even if keys or `AI_OFFLINE_MODE=0` were inherited. Replies are template-based PDF excerpts, labeled simulated; they are not live AI answers. Demo academic data stays under `data/student-demo/student/`, while normal data remains under `data/student/` (or your normal `OFFICE_DATA_DIR`). The Office chat button opens a course tutor picker instead of Claude Team Chat. Graphics start at Low with a cozy layout, using separate preferences.
+
+See [the Vietnamese simulation guide](docs/STUDENT-DEMO.md) for running, testing and returning to real mode. This is separate from the old Office `?demo` with fictional coding sessions.
+
 ### Student Workspace, Tutor, Memory and Office activity (Milestone 5)
 
 Open `http://localhost:4310/student` after starting the local server (`npm run dev`, or `npm run build` then `npm start`).
@@ -40,25 +55,27 @@ creating semesters, courses or uploading PDFs.
 
 The [repository analysis and implementation plan](docs/STUDENT-OS-PLAN.md) explains the architecture, planned files and subsequent milestones.
 
-Copy `.env.example` to `.env.local`, set `OPENAI_API_KEY`, and start the server. The custom server loads these files before initializing AI services; restart after changing configuration.
-`OPENAI_CHAT_MODEL` defaults to `gpt-5-mini`; `OPENAI_EMBEDDING_MODEL` defaults to `text-embedding-3-small` with `OPENAI_EMBEDDING_DIMENSIONS=1536`.
-When changing embedding model, dimensions or `OPENAI_EMBEDDING_VERSION`, reprocess the affected PDFs. The tutor only retrieves compatible vectors belonging to the selected course.
+Copy `.env.example` to `.env.local`, fill the keys you want to use, and restart the server. Keys remain server-side: `OPENAI_API_KEY` for OpenAI/ChatGPT API, `GEMINI_API_KEY` for Google Gemini, `DEEPSEEK_API_KEY` for DeepSeek. The Course Chat **AI provider** selector chooses the provider per question; `AI_CHAT_PROVIDER=openai` sets the default. Each answer records its provider/model, and retries keep the original provider. Missing keys are shown in the selector and disable sending; no automatic fallback calls another provider. Changing a key or model requires a server restart.
 
-AI calls send the question, a bounded recent conversation and selected excerpts to OpenAI; original PDF files stay local. Chat uses the [Responses API with structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses) and `store: false`. Local SQLite keeps conversation history. Missing key, rate limits, timeouts, invalid citations and incompatible indexes are reported in the UI. Only the newest failed question can be retried in place; request IDs prevent duplicate messages. An interrupted server request becomes retryable after its two-minute lease expires.
+Embeddings are configured independently with `AI_EMBEDDING_PROVIDER=openai`, `gemini` or `ollama`. DeepSeek chat uses a separately configured embedding provider for course retrieval. For a Gemini-only setup, set both `AI_CHAT_PROVIDER=gemini` and `AI_EMBEDDING_PROVIDER=gemini` and fill `GEMINI_API_KEY`; no OpenAI key is needed. For DeepSeek chat with Gemini indexing, use `AI_CHAT_PROVIDER=deepseek`, `AI_EMBEDDING_PROVIDER=gemini`, and fill both relevant keys. For keyless local inference, use the Student local launcher described above.
 
-For explicit offline testing, set `AI_OFFLINE_MODE=1`. The UI labels all simulated replies. The old `AI_MOCK_EMBEDDINGS` flag alone and an API key of `mock` no longer activate mocks. Offline indexes must be reprocessed with a real embedding provider before using live OpenAI. Automated browser tests use offline mode and do not verify live model quality.
+Chat defaults: `OPENAI_CHAT_MODEL=gpt-5-mini`, `GEMINI_CHAT_MODEL=gemini-3.6-flash`, `DEEPSEEK_CHAT_MODEL=deepseek-flash`. Index defaults: OpenAI `text-embedding-3-small` or Gemini `gemini-embedding-2`, both 1536 dimensions. Gemini index identities are namespaced (`gemini/<model>`); existing OpenAI indexes remain compatible. Changing only the chat provider does not require reindexing. When changing the embedding provider/model/dimensions/version, reprocess the PDFs. The tutor only retrieves compatible vectors belonging to the selected course.
+
+AI calls send the question, bounded recent course history, selected memory and excerpts to the provider you choose; original PDF files stay local. OpenAI uses the [Responses API with structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs?api-mode=responses) and `store: false`. Gemini uses its documented [OpenAI compatibility endpoint](https://ai.google.dev/gemini-api/docs/openai) with JSON Schema; DeepSeek uses [Chat Completions JSON output](https://api-docs.deepseek.com/guides/json_mode/) with thinking disabled and server-side validation. Other providers have their own data policies; the OpenAI `store` setting is not a promise about them. Local SQLite keeps conversation history. Missing keys, quota limits, timeouts, invalid citations and incompatible indexes are reported in the UI. Only the newest failed question can be retried in place; request IDs also bind the provider and prevent duplicate messages. An interrupted server request becomes retryable after its two-minute lease expires.
+
+For explicit offline testing, set `AI_OFFLINE_MODE=1`. All three selector choices and embeddings then use labeled mock adapters, never a real provider. The old `AI_MOCK_EMBEDDINGS` flag alone and an API key of `mock` do not activate mocks. Offline indexes must be reprocessed with a real embedding provider before live use. Automated browser tests use offline mode and do not verify live model quality.
 
 Each course has one conversation in this MVP, with its latest 40 turns displayed and a smaller recent context sent to the model. Archived courses remain readable and allow questions when opened explicitly. General-knowledge answers are labeled separately; the similarity threshold is a retrieval heuristic, not proof of relevance. Learning-progress features remain for later work.
 
 **Memory V1:** open **Global preferences** in the sidebar to save learning preferences shared across courses, or the **Memory** tab of a course for its goals and difficulties. Use **Save to memory** on a completed chat message to review and edit a note before saving. This defaults to the current course; global scope requires an explicit selection. Chat never saves memories automatically. You can edit/delete notes, including those in a course you explicitly open after archiving. Changes affect future context selections; existing chat text and memory snapshots remain.
 
-Each note allows 1,000 characters, with up to 50 global preferences and 100 notes per course. Each question can include up to two global preferences plus relevant notes from its own course, capped at six notes and 3,000 content characters within the existing total context limit. Course selection uses lexical overlap with Vietnamese accent normalization, not semantic memory search; synonyms and mixed languages can miss matches. Global preferences use relevance then recency. Memory shown under an answer is a snapshot of notes sent to the tutor, separate from PDF evidence; it does not prove the model followed those notes. Selected memories are sent to OpenAI with the question, just like selected excerpts. Deleted notes stop being selected; old answers may still discuss them in the bounded conversation history.
+Each note allows 1,000 characters, with up to 50 global preferences and 100 notes per course. Each question can include up to two global preferences plus relevant notes from its own course, capped at six notes and 3,000 content characters within the existing total context limit. Course selection uses lexical overlap with Vietnamese accent normalization, not semantic memory search; synonyms and mixed languages can miss matches. Global preferences use relevance then recency. Memory shown under an answer is a snapshot of notes sent to the tutor, separate from PDF evidence; it does not prove the model followed those notes. Selected memories are sent to the chosen provider with the question, just like selected excerpts. Deleted notes stop being selected; old answers may still discuss them in the bounded conversation history.
 
 **Watch your tutor in the Office:** open `/` in one tab and `/student` in another. The workspace's upper-right Office link opens a separate tab. Send a course question: an independent Student Tutor visits the library to find material and select memory, then returns to a study spot at the meeting table to prepare the answer. The Student Tutor panel shows the current outcome and phase counts; PDF/memory contents and your question are not broadcast. `?demo` and the static demo do not subscribe to Student activity.
 
 Activity reuses the authenticated Office SSE stream and its long-poll fallback. At most four recent course tutors are displayed; study spots are shared with existing furniture and a full meeting area can temporarily prevent a tutor appearing. Fast steps can finish before their short visual sequence; the panel shows the actual saved/failed outcome immediately and bubbles label subsequent movement as recent activity. Slow travel is bounded at eight seconds per leg, the whole visual sequence at 30 seconds; reduced motion places the tutor directly. Reopening or reconnecting restores the current state without replaying old completed work. A lost connection clears busy movement; missing terminal events become interrupted/unknown. Activity metadata is ephemeral, bounded to 32 courses and expires a few minutes after completion; it is not learning progress or a persisted activity journal. Chat, documents and memory remain in SQLite.
 
-M1–M5 of the current roadmap are implemented and integrated into `main` through M5 commit `48f93b6`. The app can run on the local production server without an OpenAI key: semesters, courses, PDF upload/download, explicit memory management and the Office remain available. Embedding/index processing, semantic search and Tutor answers require a key; missing configuration produces an error and does not silently enable simulation. Keep `AI_OFFLINE_MODE=0` for normal use. Automated AI checks use a controlled offline provider; live OpenAI integration and model quality remain unverified. After adding a key, reprocess any offline PDFs and run a small live test. Learning progress, planner and quiz features are outside this roadmap.
+M1–M5 of the current roadmap are implemented and integrated into `main` through M5 commit `48f93b6`. The app can run on the local production server without an OpenAI key: semesters, courses, PDF upload/download, explicit memory management and the Office remain available. With cloud API providers, embedding/index processing, semantic search and Tutor answers require the corresponding key; Ollama can run them locally without keys. Missing configuration produces an error and does not silently enable simulation. Keep `AI_OFFLINE_MODE=0` for normal use. Automated AI checks use a controlled offline provider; live OpenAI integration and model quality remain unverified. After adding a key, reprocess any offline PDFs and run a small live test. Learning progress, planner and quiz features are outside this roadmap.
 
 The four-tutor limit applies only to the 3D characters shown in one Office view: one character per recent course, at most four at once. A fifth course can replace an older displayed character. This does not cap your courses, conversations or backend AI requests, and does not delete data. Without AI activity there may be no Student Tutor character to display.
 
@@ -612,7 +629,7 @@ Then open <http://localhost:4310>.
 npm install
 npm run dev                   # Turbopack with hot reload: http://localhost:4310/?demo
 npm run lint && npm run typecheck && npm test
-npm run build && npm run test:e2e   # all of them (CI: the @smoke ones on every push, all of them split across runners in e2e-full.yml)
+npm run build && npm run test:e2e   # default suite (CI: @smoke on PRs/main; full sharded suite runs manually via e2e-full.yml)
 node scripts/build-demo.mjs   # the static online demo, into demo-site/
 node scripts/record-gif.mjs   # this README's GIF, recorded from a running office
 npm run smoke                 # starts the built server and checks it works on this system

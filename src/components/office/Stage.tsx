@@ -6,9 +6,12 @@ import CameraToolbar from './CameraToolbar';
 import FirstPersonHud from './FirstPersonHud';
 import ReplayBar from './ReplayBar';
 import PhotoBar from './PhotoBar';
+import { getStudentDemo, getStudentLocal } from '@/features/academic/server-mode';
 
 export default async function Stage() {
   const t = await getT();
+  const demo = (await getStudentDemo() || await getStudentLocal());
+  const local = await getStudentLocal();
   return (
     <main className="stage-wrap" id="stage-wrap">
       <div id="stage"></div>
@@ -22,7 +25,7 @@ export default async function Stage() {
       <div className="incident" id="incident" hidden role="alert"></div>
       <ReplayBar />
       <PhotoBar />
-      <div className="empty" id="empty" hidden><b>{t('ui.stage.emptyTitle')}</b><span className="muted">{t('ui.stage.emptyText')}</span></div>
+      <div className="empty" id="empty" hidden><b>{t(demo ? 'student.demo.emptyTitle' : 'ui.stage.emptyTitle')}</b><span className="muted">{t(local ? 'student.local.emptyText' : demo ? 'student.demo.emptyText' : 'ui.stage.emptyText')}</span></div>
     </main>
   );
 }

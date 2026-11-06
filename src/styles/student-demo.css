@@ -1,0 +1,29 @@
+.student-demo-panel { padding: 18px; margin-bottom: 22px; border: 1px solid var(--accent-line); border-radius: 12px; background: var(--accent-soft); overflow-wrap: anywhere; }
+.student-demo-badge { display: block; color: var(--accent-hi); font-size: 14px; }
+.student-demo-panel p { margin: 10px 0; }
+.student-demo-storage, .student-demo-courses small { color: var(--muted); font-size: 12px; }
+.student-demo-panel ol { padding-left: 20px; line-height: 1.65; }
+.student-demo-seed, .student-demo-open { display: inline-block; padding: 9px 12px; border: 1px solid var(--accent-line); border-radius: 8px; background: var(--card); color: var(--ink); cursor: pointer; text-decoration: none; }
+.student-demo-seed:disabled { opacity: .6; cursor: wait; }
+.student-demo-courses { display: grid; gap: 10px; }
+.student-demo-courses select { width: 100%; min-width: 0; padding: 10px; background: var(--card); color: var(--ink); border: 1px solid var(--line-2); border-radius: 8px; }
+:is([data-student-demo="1"], [data-student-local="1"]) #app { grid-template-columns: 300px minmax(0, 1fr); grid-template-areas: "top top" "demo stage"; }
+.student-demo-office { grid-area: demo; margin: 0; border-radius: 0; border: 0; border-right: 1px solid var(--line-2); overflow-y: auto; min-height: 0; background: var(--side); }
+:is([data-student-demo="1"], [data-student-local="1"]) #app > .side, :is([data-student-demo="1"], [data-student-local="1"]) .tb-view, :is([data-student-demo="1"], [data-student-local="1"]) #btn-mac, :is([data-student-demo="1"], [data-student-local="1"]) #btn-plan, :is([data-student-demo="1"], [data-student-local="1"]) #btn-replay, :is([data-student-demo="1"], [data-student-local="1"]) #btn-phone-top, :is([data-student-demo="1"], [data-student-local="1"]) #chat-badge, :is([data-student-demo="1"], [data-student-local="1"]) #zc-peek { display: none !important; }
+:is([data-student-demo="1"], [data-student-local="1"]) #st-tab-more, :is([data-student-demo="1"], [data-student-local="1"]) #st-panel-more { display: none !important; }
+:is([data-student-demo="1"], [data-student-local="1"]) #btn-chat .lbl { display: inline; }
+@media (max-width: 720px) {
+  :is([data-student-demo="1"], [data-student-local="1"]) #app { grid-template-columns: minmax(0, 1fr); grid-template-rows: 56px auto minmax(220px, 1fr); grid-template-areas: "top" "demo" "stage"; overflow-y: auto; }
+  .student-demo-office { max-height: 340px; padding: 14px; border-right: 0; border-bottom: 1px solid var(--line-2); }
+  .student-demo-office .student-demo-seed { margin-top: 10px; }
+  .student-demo-office .student-demo-explanation, .student-demo-office .student-demo-storage { display: none; }
+  .student-demo-office ol { display: none; }
+  :is([data-student-demo="1"], [data-student-local="1"]) .topbar .tb-clock { display: none; }
+  :is([data-student-demo="1"], [data-student-local="1"]) #btn-chat .lbl { display: none; }
+  :is([data-student-demo="1"], [data-student-local="1"]) .stage-wrap { padding-bottom: 0; }
+  :is([data-student-demo="1"], [data-student-local="1"]) #stage { bottom: 0; }
+  :is([data-student-demo="1"], [data-student-local="1"]) .toolbar { bottom: 12px; }
+}
+.student-local-status { display: grid; gap: 8px; margin: 10px 0; padding: 10px; border: 1px solid var(--line-2); border-radius: 8px; overflow-wrap: anywhere; }
+.student-local-status small { display: block; color: var(--muted); font-size: 12px; }
+.student-local-status button { justify-self: start; border: 1px solid var(--line-2); border-radius: 8px; padding: 8px 10px; color: var(--ink); background: var(--card); cursor: pointer; font: inherit; }

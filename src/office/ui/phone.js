@@ -5,7 +5,7 @@
 // bar as soon as one comes in, with buttons big enough for a thumb. The counts on the tabs follow the page: the waiting
 // sessions, the approvals in the stack, the chat's unread badge (watched, so nothing else has to call in here).
 import { state } from '../core/state.js';
-import { $, el } from '../core/env.js';
+import { $, STUDENT_LEARNING, el } from '../core/env.js';
 import { icon } from './icons.js';
 import { closeSession, drM, drS } from './session-drawer.js';
 import { closeMac } from './mac-drawer.js';
@@ -72,6 +72,7 @@ function apply() {
 }
 
 export function setup() {
+  if (STUDENT_LEARNING) return;
   mq = matchMedia(PHONE);
   bar = el('nav', 'ph-tabs'); bar.setAttribute('role', 'tablist'); bar.setAttribute('aria-label', tr('ui.phone.tabs'));
   for (const [name, ic] of TABS) {

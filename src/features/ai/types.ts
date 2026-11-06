@@ -6,10 +6,25 @@ export interface ChatMessage {
   basis: 'materials' | 'general' | 'insufficient' | null; sources: ChatSource[]; memories: MemorySnapshot[]; createdAt: string;
 }
 export interface ChatTurn {
+  provider: ChatProviderId;
+  mode: 'materials' | 'expanded'; phase?: string;
   id: string; sequence: number; requestId: string; status: 'pending' | 'completed' | 'failed';
   errorCode: string | null; model: string | null; isMock: boolean; language: 'en' | 'vi'; createdAt: string; messages: ChatMessage[];
 }
 export interface ChatHistory { conversationId: string | null; isMock: boolean; turns: ChatTurn[] }
+export type ChatProviderId = 'openai' | 'gemini' | 'deepseek' | 'ollama' | 'mock';
+export interface AISettings {
+  webSearch: { configured: boolean };
+  studentDemo: boolean;
+  defaultProvider: ChatProviderId; isMock: boolean;
+  chatProviders: { id: ChatProviderId; label: string; model: string; configured: boolean; isMock: boolean }[];
+  embedding: { provider: string; model: string; dimensions: number; configured: boolean; isMock: boolean };
+}
+
+export interface LocalAIStatus {
+  connected: boolean; chatReady: boolean; embeddingReady: boolean; busy?: boolean;
+  chatModel?: string; embeddingModel?: string; error?: string; models: { name: string; size: number }[];
+}
 
 export type MemoryTarget = { scope: 'global'; courseId?: null } | { scope: 'course'; courseId: string };
 export interface MemorySnapshot { id: string; scope: 'global' | 'course'; courseId: string | null; content: string; updatedAt: string }

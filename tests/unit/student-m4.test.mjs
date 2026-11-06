@@ -181,7 +181,7 @@ test('M4 migration upgrades M3 history without dropping messages and is safe on 
   assert.equal(service.chatHistory(ids[1]).turns[0].messages[0].content, 'Existing answer');
   assert.deepEqual(service.chatHistory(ids[1]).turns[0].messages[0].memories, []);
   service.close(); service = createStudentService(dir, { aiProvider: createMockAIProvider() });
-  assert.equal(service.db.prepare('SELECT count(*) AS n FROM schema_migrations').get().n, 4);
+  assert.equal(service.db.prepare('SELECT count(*) AS n FROM schema_migrations').get().n, 6);
 });
 
 test('memory HTTP endpoints enforce auth/origin, payload and target scope', async (t) => {

@@ -7,7 +7,7 @@
 // even at the lowest resolution step, it goes down one level and remembers that for this device. A remembered level is
 // tried one step higher again after three days, so a busy afternoon does not cap the office for good.
 import * as THREE from 'three';
-import { small } from '../core/env.js';
+import { small, STUDENT_LEARNING } from '../core/env.js';
 import { SOFTWARE_GL, camera, composer, renderer, scene } from './renderer.js';
 import { sun } from './lights.js';
 
@@ -17,7 +17,7 @@ const PRESET = {
   medium: { prMax: 1.5, shadows: true, soft: false, map: 1024, msaa: 2, plain: false, fps: 60 },
   low: { prMax: 1, shadows: false, soft: false, map: 512, msaa: 0, plain: true, fps: 30 },
 };
-const KEY = 'office-quality', AUTO_KEY = 'office-quality-auto', RETRY_MS = 3 * 864e5;
+const KEY = STUDENT_LEARNING ? 'student-demo-quality' : 'office-quality', AUTO_KEY = KEY + '-auto', RETRY_MS = 3 * 864e5;
 // choice: what the viewer picked ('auto' or a level); level: what is in use; plain: draw without post-processing
 export const quality = { choice: 'auto', level: 'high', plain: false, fps: 60, prMax: 2 };
 const listeners = new Set();
@@ -27,6 +27,7 @@ const store = { get: (k) => { try { return localStorage.getItem(k); } catch { re
 let phone = null;
 export const phoneLike = () => (phone ??= matchMedia('(pointer: coarse)').matches && Math.min(screen.width, screen.height) < 600);
 function autoStart() {
+  if (STUDENT_LEARNING) return 'low';
   if (SOFTWARE_GL) return 'low';
   let saved = null; try { saved = JSON.parse(store.get(AUTO_KEY) || 'null'); } catch { /* old value */ }
   const base = phoneLike() ? 'low' : small.matches || matchMedia('(pointer: coarse)').matches ? 'medium' : 'high';

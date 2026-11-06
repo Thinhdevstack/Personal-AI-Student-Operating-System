@@ -25,6 +25,7 @@ export interface Course {
 }
 
 export interface Material {
+  indexReady?: boolean;
   id: string;
   courseId: string;
   filename: string;

@@ -5,11 +5,14 @@ import { buildAIContext, retrievalQuestion, validateTutorAnswer } from './contex
 import { searchCourseMaterials } from './retrieval.mjs';
 import { StudentError } from '../student/storage.mjs';
 import { createMemoryService } from './memory.mjs';
+import { registryForProvider } from './providers.mjs';
 
 const uuid = (value) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 const time = () => new Date().toISOString();
 
-export function createCourseChat({ db, aiProvider, memory = createMemoryService({ db }), activity }) {
+export function createCourseChat({ db, aiProvider, memory = createMemoryService({ db }), activity, aiRegistry = registryForProvider(aiProvider) }) {
+  const running = new Map();
+  const key = (courseId, requestId) => courseId + ':' + requestId;
   function course(id) {
     if (!uuid(id)) throw new StudentError('invalidInput');
     const row = db.prepare('SELECT * FROM courses WHERE id=?').get(id);
@@ -29,15 +32,19 @@ export function createCourseChat({ db, aiProvider, memory = createMemoryService(
     const row = conversation(courseId, conversationId);
     if (!row) return { conversationId: null, turns: [], isMock: !!aiProvider.isMock };
     recover(row.id);
-    const turns = db.prepare('SELECT id, sequence, requestId, status, errorCode, model, isMock, language, createdAt FROM chat_turns WHERE conversationId=? ORDER BY sequence DESC LIMIT ?').all(row.id, L.visibleTurns).reverse();
+    const turns = db.prepare('SELECT id, sequence, requestId, status, errorCode, model, isMock, provider, mode, language, createdAt FROM chat_turns WHERE conversationId=? ORDER BY sequence DESC LIMIT ?').all(row.id, L.visibleTurns).reverse();
     const messages = db.prepare('SELECT m.* FROM chat_messages m JOIN chat_turns t ON t.id=m.turnId WHERE m.conversationId=? AND t.sequence >= ? ORDER BY t.sequence, CASE m.role WHEN \'user\' THEN 0 ELSE 1 END').all(row.id, turns[0]?.sequence || 0);
     return {
       conversationId: row.id, isMock: !!aiProvider.isMock,
-      turns: turns.map((turn) => ({ ...turn, isMock: !!turn.isMock, messages: messages.filter((message) => message.turnId === turn.id).map(({ id, role, content, basis, sources, memories, createdAt }) => ({ id, role, content, basis, sources: JSON.parse(sources), memories: JSON.parse(memories), createdAt })) })),
+      turns: turns.map((turn) => ({ ...turn, ...(turn.status === 'pending' && { phase: running.get(key(courseId, turn.requestId))?.phase }), isMock: !!turn.isMock, messages: messages.filter((message) => message.turnId === turn.id).map(({ id, role, content, basis, sources, memories, createdAt }) => ({ id, role, content, basis, sources: JSON.parse(sources), memories: JSON.parse(memories), createdAt })) })),
     };
   }
-  async function send(input) {
-    const fields = ['courseId', 'message', 'requestId', 'language', 'conversationId'];
+  async function send(input, { signal: callerSignal } = {}) {
+    const fields = ['courseId', 'message', 'requestId', 'language', 'conversationId', 'provider', 'mode', 'webSearch'];
+    if (input?.provider !== undefined && !['openai', 'gemini', 'deepseek', 'ollama', 'mock'].includes(input.provider)) throw new StudentError('aiProviderInvalid');
+    if (input?.mode !== undefined && !['materials', 'expanded'].includes(input.mode)) throw new StudentError('invalidInput');
+    if (input?.webSearch !== undefined && typeof input.webSearch !== 'boolean') throw new StudentError('invalidInput');
+    if (input?.webSearch) throw new StudentError('webNotConfigured', 409);
     if (!input || Object.keys(input).some((key) => !fields.includes(key)) || typeof input.message !== 'string' || !input.message.trim() || input.message.length > L.messageChars || (input.requestId !== undefined && !uuid(input.requestId)) || (input.conversationId !== undefined && !uuid(input.conversationId)) || (input.language !== undefined && !['en','vi'].includes(input.language))) throw new StudentError('invalidInput');
     const activeCourse = course(input.courseId), message = input.message.trim(), language = input.language || 'vi';
     const requestId = input.requestId || randomUUID();
@@ -49,51 +56,79 @@ export function createCourseChat({ db, aiProvider, memory = createMemoryService(
       }
       recover(conv.id);
       const existing = db.prepare('SELECT * FROM chat_turns WHERE conversationId=? AND requestId=?').get(conv.id, requestId);
-      if (existing && (existing.userMessage !== message || existing.language !== language)) throw new StudentError('chatRequestConflict', 409);
+      const providerId = input.provider ?? existing?.provider ?? aiRegistry.defaultProvider;
+      const mode = input.mode ?? existing?.mode ?? 'expanded';
+      if (existing && (existing.userMessage !== message || existing.language !== language || existing.provider !== providerId || existing.mode !== mode)) throw new StudentError('chatRequestConflict', 409);
       if (existing?.status === 'completed') return { replay: true };
       if (db.prepare("SELECT id FROM chat_turns WHERE conversationId=? AND status='pending'").get(conv.id)) throw new StudentError('chatBusy', 409);
       if (existing && db.prepare('SELECT id FROM chat_turns WHERE conversationId=? AND sequence>? LIMIT 1').get(conv.id, existing.sequence)) throw new StudentError('chatStaleRetry', 409);
       const attemptId = randomUUID(), id = existing?.id || randomUUID();
-      if (existing) db.prepare("UPDATE chat_turns SET status='pending', errorCode=NULL, attemptId=?, leaseExpiresAt=? WHERE id=?").run(attemptId, Date.now() + L.leaseMs, id);
+      const leaseMs = providerId === 'ollama' ? 600_000 : L.leaseMs;
+      if (existing) db.prepare("UPDATE chat_turns SET status='pending', errorCode=NULL, attemptId=?, leaseExpiresAt=? WHERE id=?").run(attemptId, Date.now() + leaseMs, id);
       else {
-        db.prepare("INSERT INTO chat_turns (id, conversationId, requestId, userMessage, language, status, attemptId, leaseExpiresAt, createdAt) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?)").run(id, conv.id, requestId, message, language, attemptId, Date.now() + L.leaseMs, time());
+        db.prepare("INSERT INTO chat_turns (id, conversationId, requestId, userMessage, language, status, attemptId, leaseExpiresAt, createdAt, provider, mode) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?)").run(id, conv.id, requestId, message, language, attemptId, Date.now() + leaseMs, time(), providerId, mode);
         db.prepare("INSERT INTO chat_messages (id, conversationId, turnId, role, content, createdAt) VALUES (?, ?, ?, 'user', ?, ?)").run(randomUUID(), conv.id, id, message, time());
       }
-      return { id, conversationId: conv.id, attemptId };
+      return { id, conversationId: conv.id, attemptId, providerId, mode };
     }).immediate();
     if (claimed.replay) return history(activeCourse.id);
+    const controller = new AbortController();
+    const signal = callerSignal ? AbortSignal.any([callerSignal, controller.signal]) : controller.signal;
+    const run = { controller, phase: 'library.search' };
+    running.set(key(activeCourse.id, requestId), run);
+    const checkCancelled = () => { if (signal.aborted) throw new StudentError('chatCancelled', 409); };
+    let selection, selectionError;
+    try { selection = aiRegistry.get(claimed.providerId); } catch (error) { selectionError = error; }
+    const simulated = !!aiProvider.isMock || !!selection?.provider.isMock;
     let phase = 'library.search';
     let notify = () => {};
-    try { notify = activity?.begin({ courseId: activeCourse.id, courseName: activeCourse.name, requestId, turnId: claimed.id, attemptId: claimed.attemptId, isMock: !!aiProvider.isMock }) || notify; } catch { /* Optional visualization. */ }
-    const emit = (operation, status, count) => { try { notify(operation, status, count); } catch { /* Optional visualization. */ } };
+    try { notify = activity?.begin({ courseId: activeCourse.id, courseName: activeCourse.name, requestId, turnId: claimed.id, attemptId: claimed.attemptId, isMock: simulated }) || notify; } catch { /* Optional visualization. */ }
+    const emit = (operation, status, count) => { run.phase = operation; try { notify(operation, status, count); } catch { /* Optional visualization. */ } };
     try {
       emit(phase, 'started');
-      if (!db.prepare("SELECT id FROM documents WHERE courseId=? AND status='ready' LIMIT 1").get(activeCourse.id)) throw new StudentError('chatNoMaterials', 409);
+      checkCancelled();
+      if (selectionError) throw selectionError;
+      if (!selection.configured) throw new StudentError('aiKeyMissing');
+      const hasMaterials = !!db.prepare("SELECT id FROM documents WHERE courseId=? AND status='ready' LIMIT 1").get(activeCourse.id);
+      if (!hasMaterials && claimed.mode === 'materials') throw new StudentError('chatNoMaterials', 409);
+      if (!hasMaterials && input.mode === undefined) throw new StudentError('chatNoMaterials', 409);
       const recent = db.prepare("SELECT m.role, m.content FROM chat_messages m JOIN chat_turns t ON t.id=m.turnId WHERE m.conversationId=? AND t.status='completed' ORDER BY t.sequence DESC, CASE m.role WHEN 'assistant' THEN 0 ELSE 1 END LIMIT ?").all(claimed.conversationId, L.historyMessages).reverse();
-      const retrieved = await searchCourseMaterials({ db, courseId: activeCourse.id, query: retrievalQuestion(message, recent), aiProvider, limit: L.chunks, minScore: L.retrievalMinScore, includeArchived: true });
+      const retrieved = hasMaterials ? await searchCourseMaterials({ db, courseId: activeCourse.id, query: retrievalQuestion(message, recent), aiProvider, limit: L.chunks, minScore: L.retrievalMinScore, includeArchived: true, signal }) : { results: [] };
+      checkCancelled();
       emit(phase, 'completed', retrieved.results.length);
       phase = 'memory.search'; emit(phase, 'started');
       const memories = memory.select({ courseId: activeCourse.id, query: retrievalQuestion(message, recent), includeArchived: true });
-      const context = buildAIContext({ course: activeCourse, message, history: recent, results: retrieved.results, memories, lang: language });
+      const context = buildAIContext({ course: activeCourse, message, history: recent, results: retrieved.results, memories, lang: language, mode: claimed.mode, contextChars: selection.provider.contextChars });
       emit(phase, 'completed', context.memories.length);
       phase = 'ai.respond'; emit(phase, 'started');
-      const response = await aiProvider.chat(context);
+      let response = await selection.provider.chat(context, { signal });
+      checkCancelled();
+      if (claimed.mode === 'materials' && response.basis === 'general') {
+        response = { ...response, answer: language === 'vi' ? 'Tài liệu truy xuất chưa đủ căn cứ để trả lời câu hỏi này. Hãy bổ sung tài liệu hoặc chọn Tài liệu + mở rộng.' : 'The retrieved materials do not provide enough evidence. Add a document or choose Materials + expanded knowledge.', basis: 'insufficient', sourceIds: [] };
+      }
       const answer = validateTutorAnswer(response, context.sources);
       db.transaction(() => {
         const turn = db.prepare("SELECT id FROM chat_turns WHERE id=? AND attemptId=? AND status='pending' AND leaseExpiresAt>?").get(claimed.id, claimed.attemptId, Date.now());
         if (!turn) throw new StudentError('chatInterrupted', 409);
         db.prepare("INSERT INTO chat_messages (id, conversationId, turnId, role, content, basis, sources, memories, createdAt) VALUES (?, ?, ?, 'assistant', ?, ?, ?, ?, ?)").run(randomUUID(), claimed.conversationId, claimed.id, answer.answer, answer.basis, JSON.stringify(answer.sources), JSON.stringify(context.memories), time());
-        db.prepare("UPDATE chat_turns SET status='completed', model=?, isMock=? WHERE id=?").run(aiProvider.chatModel || response.model || 'unknown', aiProvider.isMock ? 1 : 0, claimed.id);
+        db.prepare("UPDATE chat_turns SET status='completed', model=?, isMock=? WHERE id=?").run(selection.provider.chatModel || response.model || 'unknown', simulated ? 1 : 0, claimed.id);
         db.prepare('UPDATE chat_conversations SET updatedAt=? WHERE id=?').run(time(), claimed.conversationId);
       })();
       emit(phase, 'completed'); emit('turn', 'completed');
       return history(activeCourse.id);
     } catch (error) {
-      const safe = aiError(error);
+      const safe = signal.aborted ? new StudentError('chatCancelled', 409) : aiError(error);
       db.prepare("UPDATE chat_turns SET status='failed', errorCode=? WHERE id=? AND attemptId=? AND status='pending'").run(safe.code, claimed.id, claimed.attemptId);
-      emit(phase, 'failed'); emit('turn', safe.code === 'chatInterrupted' ? 'interrupted' : 'failed');
+      emit(phase, 'failed'); emit('turn', ['chatInterrupted', 'chatCancelled'].includes(safe.code) ? 'interrupted' : 'failed');
       throw safe;
-    }
+    } finally { running.delete(key(activeCourse.id, requestId)); }
   }
-  return { history, send };
+  function cancel(courseId, requestId) {
+    course(courseId);
+    if (!uuid(requestId)) throw new StudentError('invalidInput');
+    const run = running.get(key(courseId, requestId));
+    run?.controller.abort();
+    return { cancelled: !!run };
+  }
+  return { history, send, cancel };
 }

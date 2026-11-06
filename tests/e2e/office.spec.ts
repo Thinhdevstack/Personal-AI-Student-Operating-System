@@ -4,6 +4,7 @@ import crypto from 'node:crypto';
 import { execFileSync, spawn } from 'node:child_process';
 import { test, expect, type Page } from '@playwright/test';
 import { DATA_DIR, HOME_DIR } from '../../playwright.config';
+import { officeStartTimeout } from './browser-options';
 
 // Collects uncaught errors and console errors while the page runs.
 function watchErrors(page: Page) {
@@ -20,7 +21,7 @@ for (const layout of ['pro', 'cozy', 'hq']) {
   test(`the ${layout} office starts in demo mode without errors`, { tag: '@smoke' }, async ({ page }) => {
     const errors = watchErrors(page);
     await page.goto(`/?demo&layout=${layout}`);
-    await expect(page.locator('#stage canvas')).toBeVisible();
+    await expect(page.locator('#stage canvas')).toBeVisible({ timeout: officeStartTimeout });
     await expect(page.locator('#demo-chip')).toBeVisible();
     await expect(page.locator('#rail-list .ri').first()).toBeVisible({ timeout: 20_000 });
     await page.waitForTimeout(3000);

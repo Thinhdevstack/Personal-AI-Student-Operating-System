@@ -9,7 +9,7 @@
 // time, several comings and goings.
 import * as THREE from 'three';
 import { state } from '../core/state.js';
-import { PRO, STATIC, V2, officeNow, rand, replay } from '../core/env.js';
+import { PRO, STATIC, STUDENT_LEARNING, V2, officeNow, rand, replay } from '../core/env.js';
 import { TOKEN } from '../net/live.js';
 import { scene } from '../scene/renderer.js';
 import { mat } from '../scene/blocks.js';
@@ -596,5 +596,5 @@ export const outing = () => (run ? { kind: run.kind, stage: run.stage, id: run.w
 export function setup() {
   streetHooks.home = goHome;
   streetHooks.arrive = arrive;
-  if (!STATIC && !new URLSearchParams(location.search).has('demo')) { setTimeout(lookForUpgrade, 20e3); setInterval(lookForUpgrade, 3 * 60e3); }
+  if (!STATIC && !STUDENT_LEARNING && !new URLSearchParams(location.search).has('demo')) { setTimeout(lookForUpgrade, 20e3); setInterval(lookForUpgrade, 3 * 60e3); }
 }

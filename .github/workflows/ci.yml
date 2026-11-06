@@ -68,7 +68,18 @@ jobs:
           NEXT_TELEMETRY_DISABLED: 1
       - run: npx playwright install --with-deps chromium
       # the smoke tests only, for a quick answer: every test runs in e2e-full.yml, split across runners
-      - run: npm run test:e2e:smoke
+      - name: Office and academic smoke tests
+        run: npm run test:e2e:smoke -- --workers=1
+      - name: Student simulation smoke test
+        run: npm run test:e2e:student-demo -- --reporter=list,html
+        env:
+          OFFICE_DIST_DIR: .next
+          PLAYWRIGHT_HTML_OUTPUT_DIR: playwright-report/student-demo
+      - name: Ollama protocol fixture smoke test (no model download)
+        run: npm run test:e2e:student-local -- --reporter=list,html
+        env:
+          OFFICE_DIST_DIR: .next
+          PLAYWRIGHT_HTML_OUTPUT_DIR: playwright-report/student-local
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -76,4 +87,8 @@ jobs:
           path: |
             playwright-report/
             test-results/
+            test-results-student-demo/
+            test-results-student-local/
+            !test-results/office-data/**
+            !test-results/home/**
           retention-days: 7

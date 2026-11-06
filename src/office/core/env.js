@@ -6,6 +6,8 @@ import { TET } from '../../shared/workdays.js';
 export const $ = (id) => document.getElementById(id);
 // The online demo: a static export with no server behind it (next.config.mjs, OFFICE_STATIC=1). It always runs demo mode.
 export const STATIC = process.env.NEXT_PUBLIC_OFFICE_STATIC === '1';
+export const STUDENT_LEARNING = typeof document !== 'undefined' && (document.documentElement.dataset.studentDemo === '1' || document.documentElement.dataset.studentLocal === '1');
+export const LAYOUT_KEY = STUDENT_LEARNING ? 'student-demo-layout' : 'office-layout';
 export let stage;
 export let reduceMotion;
 export let LAYOUT;
@@ -47,7 +49,7 @@ export function setup() {
   // Floor plan, each viewer's own choice: 'pro' (a company floor, the default), 'cozy' (one open room)
   // or 'hq' (headquarters: the company floor plus a wing of department rooms). Switching reloads the page;
   // ?layout=cozy|pro|hq overrides it for one visit.
-  LAYOUT = (() => { const q = new URLSearchParams(location.search).get('layout'); if (PLANS.includes(q)) return q; const def = 'pro'; try { const v = localStorage.getItem('office-layout'); return PLANS.includes(v) ? v : def; } catch { return def; } })();
+  LAYOUT = (() => { const q = new URLSearchParams(location.search).get('layout'); if (PLANS.includes(q)) return q; const def = STUDENT_LEARNING ? 'cozy' : 'pro'; try { const v = localStorage.getItem(LAYOUT_KEY); return PLANS.includes(v) ? v : def; } catch { return def; } })();
   // the company floor's rooms, people and habits; headquarters is the company floor plus a wing of departments
   PRO = LAYOUT === 'pro' || LAYOUT === 'hq';
   HQ = LAYOUT === 'hq';

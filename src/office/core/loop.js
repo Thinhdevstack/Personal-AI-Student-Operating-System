@@ -133,6 +133,8 @@ const T = { people: 0, life: 0, street: 0, world: 0, draw: 0, labels: 0 };
 const lap = (k) => { const t = performance.now(); T[k] += t - tLast; tLast = t; };
 export function loop(now = 0) {
   requestAnimationFrame(loop);
+  // Do not simulate or render a scene nobody can see. SSE still keeps academic activity current.
+  if (document.hidden && !recorder && !state.clip) { clock.getDelta(); lastFrame = 0; return; }
   const g = frameGap(now), gap = lite ? 1000 : quality.fps < 60 ? Math.max(g, 1000 / quality.fps) : g;   // list mode: the office keeps its state, barely draws
   if (now - lastFrame < gap - 2) return;
   if (lastFrame && !fp.on && !state.clip) adaptResolution(now - lastFrame, gap, Math.min(0.1, (now - lastFrame) / 1000));

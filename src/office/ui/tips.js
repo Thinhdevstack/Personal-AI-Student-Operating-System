@@ -3,7 +3,7 @@
 // Once seen it does not come back by itself: Settings → More → "Show the tour again", or ?tips.
 import { CSS2DObject } from 'three/addons/renderers/CSS2DRenderer.js';
 import { state } from '../core/state.js';
-import { $, STATIC, el, replay } from '../core/env.js';
+import { $, STATIC, STUDENT_LEARNING, el, replay } from '../core/env.js';
 import { BASE_ZOOM, scene } from '../scene/renderer.js';
 import { focusTarget } from '../core/loop.js';
 import { PROPS, hoverProp, setOutline } from '../interact/props.js';
@@ -108,6 +108,7 @@ export function updateTips() {
 }
 
 export function setup() {
+  if (STUDENT_LEARNING) return;
   asked = new URLSearchParams(location.search).has('tips');
   pending = !seen() || asked ? performance.now() + 4500 : 0;   // (real time: a slow machine's office clock lags)
   addEventListener('keydown', (e) => { if (tour && e.key === 'Escape') endTips(); });
