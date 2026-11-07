@@ -42,6 +42,7 @@ test('Ollama native HTTP contract: local status, bounded batches, normalized emb
   assert.equal(status.connected && status.chatReady && status.embeddingReady, true);
   assert.deepEqual((await client.embedding.embed(Array(9).fill('Primary keys')))[0], [0.6, 0.8, 0]);
   assert.equal(calls.filter((c) => c.url === '/api/embed').length, 2);
+  assert.ok(calls.filter((c) => c.url === '/api/embed').every((c) => c.body.keep_alive === '2m'));
   assert.equal((await client.chat.chat(ctx)).answer, answer.answer);
   const request = calls.at(-1);
   assert.equal(request.url, '/api/chat'); assert.equal(request.body.stream, false);
@@ -78,11 +79,37 @@ test('Ollama permits one inference; cancellation and timeout release its slot', 
   const controller = new AbortController();
   const pending = client.chat.chat(ctx, { signal: controller.signal });
   const checked = assert.rejects(pending, /chatCancelled/);
-  await assert.rejects(client.embedding.embed(['SQL']), /ollamaBusy/);
+  await assert.rejects(client.chat.chat(ctx), /ollamaBusy/);
   controller.abort(); await checked;
   await assert.rejects(client.chat.chat(ctx), /aiTimeout/);
   // A timed out request must not leave the client permanently busy.
   await assert.rejects(client.chat.chat(ctx), /aiTimeout/);
+});
+
+test('Ollama queues embeddings behind inference, reports batches, and removes cancelled waiters', async () => {
+  let release, started;
+  const reached = new Promise((resolve) => { started = resolve; });
+  const hold = new Promise((resolve) => { release = resolve; });
+  let active = 0, peak = 0;
+  const calls = [];
+  const client = createOllama({ dimensions: 3, fetch: async (url, init) => {
+    active++; peak = Math.max(peak, active);
+    const body = JSON.parse(init.body); calls.push(body);
+    if (url.pathname === '/api/chat') { started(); await hold; }
+    active--;
+    return Response.json(url.pathname === '/api/embed' ? { embeddings: body.input.map(() => [1, 0, 0]) } : { done: true, message: { content: JSON.stringify(answer) } });
+  } });
+  const chat = client.chat.chat(ctx); await reached;
+  const controller = new AbortController();
+  const cancelled = assert.rejects(client.embedding.embed(['cancelled'], { signal: controller.signal }), /chatCancelled/);
+  const progress = [];
+  const first = client.embedding.embed(Array(9).fill('first'), { onProgress: (done, total) => progress.push([done, total]) });
+  const second = client.embedding.embed(['second']);
+  controller.abort(); await cancelled;
+  release(); await Promise.all([chat, first, second]);
+  assert.equal(peak, 1);
+  assert.deepEqual(progress, [[8, 9], [9, 9]]);
+  assert.deepEqual(calls.filter((c) => c.input).flatMap((c) => c.input), [...Array(9).fill('first'), 'second']);
 });
 
 test('expanded Ollama responses separate supplied evidence and additional model knowledge into visible sections', async () => {
@@ -96,6 +123,12 @@ test('expanded Ollama responses separate supplied evidence and additional model 
   assert.match(response.answer, /Bổ sung từ kiến thức mô hình \(chưa xác minh\):\nAn extra SQL example/);
   assert.ok(sent.format.required.includes('additionalKnowledge'));
   assert.deepEqual(response.sourceIds, ['S1']);
+});
+
+test('an insufficient Ollama answer cannot append contradictory unverified knowledge', async () => {
+  const client = createOllama({ fetch: async () => Response.json({ done: true, message: { content: JSON.stringify({ answer: 'I cannot explain this reliably.', basis: 'insufficient', sourceIds: [], additionalKnowledge: 'An unsupported explanation.' }) } }) });
+  const response = await client.chat.chat({ ...ctx, mode: 'expanded', lang: 'en' });
+  assert.equal(response.answer, 'I cannot explain this reliably.');
 });
 
 function fixture(t) {
@@ -116,6 +149,43 @@ async function add(f, course, text, name = 'course.pdf') {
   const doc = f.service.addMaterial(course.id, studentPdf([text]), name, 'application/pdf');
   await f.service.processDocument(doc.id); return doc;
 }
+
+test('six local PDFs queue across courses; one failure does not block later files, interrupted work can retry', async (t) => {
+  const f = fixture(t);
+  let started, release;
+  const reached = new Promise((resolve) => { started = resolve; });
+  const hold = new Promise((resolve) => { release = resolve; });
+  const original = f.embedding.embed;
+  let active = 0, peak = 0, calls = 0;
+  f.embedding.embed = async (texts, { onProgress } = {}) => {
+    active++; peak = Math.max(peak, active); calls++;
+    try {
+      if (calls === 1) { started(); await hold; throw new Error('failed first PDF'); }
+      onProgress?.(texts.length, texts.length);
+      return await original(texts);
+    } finally { active--; }
+  };
+  const docs = Array.from({ length: 6 }, (_, i) => f.service.addMaterial(i % 2 ? f.database.id : f.oop.id, studentPdf(['Batch document ' + i]), `batch-${i}.pdf`, 'application/pdf'));
+  const pending = docs.map((doc) => f.service.processDocument(doc.id));
+  const outcomes = Promise.allSettled(pending);
+  await reached;
+  assert.equal(f.service.materials(f.database.id).filter((d) => d.processingPhase === 'queued').length, 3);
+  assert.equal(f.service.materials(f.oop.id).find((d) => d.id === docs[0].id).processingPhase, 'indexing');
+  await assert.rejects(f.service.processDocument(docs[1].id), /busy/);
+  release();
+  assert.deepEqual((await outcomes).map((r) => r.status), ['rejected', ...Array(5).fill('fulfilled')]);
+  assert.equal(peak, 1);
+  f.embedding.embed = original;
+  await f.service.processDocument(docs[0].id);
+  assert.ok([...f.service.materials(f.oop.id), ...f.service.materials(f.database.id)].every((d) => d.status === 'ready' && !d.processingPhase));
+  const interrupted = f.service.addMaterial(f.oop.id, studentPdf(), 'interrupted.pdf', 'application/pdf');
+  f.service.db.prepare("UPDATE documents SET status='processing' WHERE id=?").run(interrupted.id);
+  f.reopen();
+  const recovered = f.service.materials(f.oop.id).find((d) => d.id === interrupted.id);
+  assert.equal(recovered.status, 'failed'); assert.equal(recovered.processingError, 'processingInterrupted');
+  await f.service.processDocument(interrupted.id);
+  assert.equal(f.service.materials(f.oop.id).find((d) => d.id === interrupted.id).status, 'ready');
+});
 
 test('local RAG is course scoped; mode and provider survive retry/replay/reopen; document-only guards general answers', async (t) => {
   const f = fixture(t);

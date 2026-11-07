@@ -43,6 +43,7 @@ export default function CourseChat({ courseId, lang, hasReadyMaterials, onMemory
       let saved: string | null = null;
       try { saved = localStorage.getItem('student-chat-provider:' + courseId); } catch { /* Blocked storage. */ }
       setProvider(config.chatProviders.find((entry) => entry.id === saved)?.id || config.defaultProvider);
+      try { setMode(localStorage.getItem('student-chat-mode:' + courseId) === 'expanded' ? 'expanded' : 'materials'); } catch { /* Blocked storage. */ }
     }).catch((err) => {
       if (!controller.signal.aborted) setError(err instanceof AcademicApiError ? err.message : 'network');
     });
@@ -105,6 +106,18 @@ export default function CourseChat({ courseId, lang, hasReadyMaterials, onMemory
     const user = turn.messages.find((item) => item.role === 'user');
     if (user) void submit({ courseId, requestId: turn.requestId, message: user.content, language: turn.language, provider: turn.provider, mode: turn.mode, ...(history?.conversationId && { conversationId: history.conversationId }) });
   }
+  function chooseMode(value: 'materials' | 'expanded') {
+    setMode(value);
+    try { localStorage.setItem('student-chat-mode:' + courseId, value); } catch { /* Blocked storage. */ }
+  }
+  function askExpanded(turn: ChatTurn) {
+    const user = turn.messages.find((item) => item.role === 'user');
+    if (!user) return;
+    chooseMode('expanded'); setProvider(turn.provider);
+    try { localStorage.setItem('student-chat-provider:' + courseId, turn.provider); } catch { /* Blocked storage. */ }
+    // This is a new question in a different mode; retain the original answer and its request ID.
+    void submit({ courseId, requestId: crypto.randomUUID(), message: user.content, language: turn.language, provider: turn.provider, mode: 'expanded', ...(history?.conversationId && { conversationId: history.conversationId }) });
+  }
   const unresolved = uncertain && !history?.turns.some((turn) => turn.requestId === uncertain.requestId);
   const selected = settings?.chatProviders.find((entry) => entry.id === provider);
   const ready = !!selected?.configured && (mode === 'expanded' && !hasReadyMaterials || !!settings?.embedding.configured) && (provider !== 'ollama' || !!localStatus?.connected && !!localStatus.chatReady && (!hasReadyMaterials || !!localStatus.embeddingReady));
@@ -135,10 +148,11 @@ export default function CourseChat({ courseId, lang, hasReadyMaterials, onMemory
       {settings && provider !== 'ollama' && !ready && <p className="student-chat-hint">{t(!selected?.configured ? 'providers.missingKey' : 'providers.missingEmbeddingKey')}</p>}
       <small>{t(settings?.isMock ? 'demo.contextHint' : provider === 'ollama' && settings?.embedding.provider === 'ollama' ? 'local.contextHint' : 'providers.contextHint')}</small>
       <label htmlFor={`chat-mode-${courseId}`}>{t('local.mode')}</label>
-      <select id={`chat-mode-${courseId}`} value={mode} disabled={working || pending || !!unresolved} onChange={(event) => setMode(event.target.value as 'materials' | 'expanded')}>
+      <select id={`chat-mode-${courseId}`} value={mode} disabled={!settings || working || pending || !!unresolved} onChange={(event) => chooseMode(event.target.value as 'materials' | 'expanded')}>
         <option value="materials">{t('local.materials')}</option><option value="expanded">{t('local.expanded')}</option>
       </select>
       <small>{t(mode === 'materials' ? 'local.materialsHint' : 'local.expandedHint')}</small>
+      {hasReadyMaterials && <small>{t('local.pdfTextOnlyHint')}</small>}
       <label className="student-check"><input type="checkbox" checked={false} disabled />{t('local.web')} · {t('local.webNotConfigured')}</label>
     </div>
     {memorySaved && <p role="status">{t('memory.saved')}</p>}
@@ -152,6 +166,7 @@ export default function CourseChat({ courseId, lang, hasReadyMaterials, onMemory
             {item.basis && <p className={`student-chat-basis student-chat-basis-${item.basis}`}>{t(`tutor.basis.${item.basis}`)}</p>}
             {/* React escapes plain text; model output is never interpreted as HTML. */}
             <div className="student-chat-text">{item.content}</div>
+            {item.role === 'assistant' && item.basis === 'insufficient' && turn.mode === 'materials' && index === history.turns.length - 1 && <button type="button" className="student-ask-expanded" disabled={working || pending || !!unresolved || !settings?.chatProviders.find((entry) => entry.id === turn.provider)?.configured} onClick={() => askExpanded(turn)}>{t('local.askExpanded')}</button>}
             {!!item.sources.length && <div className="student-chat-sources"><strong>{t('tutor.sources')}</strong><ul>{item.sources.map((source) => <li key={source.sourceId}><a href={apiUrl(`documents/${source.documentId}/file`)}>{source.documentName} · {t('page')} {source.pageNumber}</a><small>{source.sourceId} · {t('tutor.chunk')} {source.chunkIndex + 1}</small></li>)}</ul></div>}
             {!!item.memories?.length && <details className="student-chat-memories"><summary>{t('memory.shared')} ({item.memories.length})</summary><p>{t('memory.snapshotHint')}</p><ul>{item.memories.map((memory) => <li key={memory.id}><small>{t(memory.scope === 'global' ? 'memory.global' : 'memory.course')}</small><p className="student-memory-content">{memory.content}</p></li>)}</ul></details>}
             {turn.status === 'completed' && <button type="button" className="student-save-memory" onClick={() => { setMemorySaved(false); setSavingMemory(item); }}>{t('memory.saveFromChat')}</button>}

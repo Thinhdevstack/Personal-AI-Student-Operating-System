@@ -25,6 +25,11 @@ export interface Course {
 }
 
 export interface Material {
+  processingPhase?: 'queued' | 'extracting' | 'ocr' | 'indexing';
+  processingPage?: number;
+  processingPages?: number;
+  completedChunks?: number;
+  totalChunks?: number;
   indexReady?: boolean;
   id: string;
   courseId: string;

@@ -103,8 +103,11 @@ export function createCourseChat({ db, aiProvider, memory = createMemoryService(
       phase = 'ai.respond'; emit(phase, 'started');
       let response = await selection.provider.chat(context, { signal });
       checkCancelled();
-      if (claimed.mode === 'materials' && response.basis === 'general') {
-        response = { ...response, answer: language === 'vi' ? 'Tài liệu truy xuất chưa đủ căn cứ để trả lời câu hỏi này. Hãy bổ sung tài liệu hoặc chọn Tài liệu + mở rộng.' : 'The retrieved materials do not provide enough evidence. Add a document or choose Materials + expanded knowledge.', basis: 'insufficient', sourceIds: [] };
+      if ((claimed.mode === 'materials' && response.basis === 'general') || (response.basis === 'insufficient' && response.answer?.trim().toLowerCase() === message.toLowerCase())) {
+        const unavailable = claimed.mode === 'expanded'
+          ? (language === 'vi' ? 'Mô hình local chưa giải thích được câu này một cách tin cậy. Hãy bổ sung tài liệu mô tả chi tiết hoặc nêu rõ ngữ cảnh của thuật ngữ.' : 'The model could not explain this reliably. Add detailed material or clarify the context of the term.')
+          : (language === 'vi' ? 'Tài liệu truy xuất chưa đủ căn cứ để trả lời câu hỏi này. Hãy bổ sung tài liệu hoặc chọn Tài liệu + mở rộng.' : 'The retrieved materials do not provide enough evidence. Add a document or choose Materials + expanded knowledge.');
+        response = { ...response, answer: unavailable, basis: 'insufficient', sourceIds: [] };
       }
       const answer = validateTutorAnswer(response, context.sources);
       db.transaction(() => {

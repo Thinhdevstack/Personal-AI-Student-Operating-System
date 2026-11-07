@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { openStudentDatabase } from './database.mjs';
 import { documentStorage, StudentError, validatePdf } from './storage.mjs';
 import { extractPdf } from '../documents/pdf.mjs';
+import { recognizePdfImage } from '../documents/ocr.mjs';
 import { createChunks } from '../documents/chunking.mjs';
 import { createAIProviders, registryForProvider } from '../ai/providers.mjs';
 import { searchCourseMaterials } from '../ai/retrieval.mjs';
@@ -27,7 +28,12 @@ export function createStudentService(dir, options = {}) {
   const aiProvider = aiRegistry.embedding;
   const embeddingId = aiProvider.providerId || (aiProvider.isMock ? 'mock' : 'openai');
   const processing = new Set();
-  const publicDocument = ({ storagePath, ...doc }) => ({ ...doc, indexReady: !!db.prepare('SELECT 1 FROM chunk_embeddings e JOIN document_chunks c ON c.id=e.chunkId WHERE c.documentId=? AND e.provider=? AND e.model=? AND e.dimensions=? AND e.modelVersion=? LIMIT 1').get(doc.id, embeddingId, aiProvider.model, aiProvider.dimensions, aiProvider.version || '') });
+  const progress = new Map();
+  let processingTail = Promise.resolve();
+  // A stopped server cannot finish its old in-memory jobs. Keep saved files/indexes and allow retry.
+  db.prepare(`UPDATE documents SET status=CASE WHEN EXISTS(SELECT 1 FROM document_chunks c WHERE c.documentId=documents.id) THEN 'ready' ELSE 'failed' END,
+    processingError='processingInterrupted' WHERE status='processing'`).run();
+  const publicDocument = ({ storagePath, ...doc }) => ({ ...doc, ...progress.get(doc.id), indexReady: !!db.prepare('SELECT 1 FROM chunk_embeddings e JOIN document_chunks c ON c.id=e.chunkId WHERE c.documentId=? AND e.provider=? AND e.model=? AND e.dimensions=? AND e.modelVersion=? LIMIT 1').get(doc.id, embeddingId, aiProvider.model, aiProvider.dimensions, aiProvider.version || '') });
   if (options.studentDemo && !aiRegistry.isMock) { db.close(); throw new StudentError('aiMockDisabled'); }
   const memory = createMemoryService({ db });
   const activity = options.activity || createStudentActivity();
@@ -170,14 +176,24 @@ export function createStudentService(dir, options = {}) {
       writableCourse(doc.courseId);
       if (processing.has(id)) throw new StudentError('busy', 429);
       processing.add(id);
+      let release;
+      const previous = processingTail;
+      if (embeddingId === 'ollama') processingTail = new Promise((resolve) => { release = resolve; });
+      progress.set(id, { processingPhase: 'queued' });
 
       // Transition status to processing immediately
       db.prepare("UPDATE documents SET status = 'processing', processingError = NULL WHERE id = ?").run(id);
 
       try {
+        if (embeddingId === 'ollama') await previous;
+        writableCourse(doc.courseId);
+        progress.set(id, { processingPhase: 'extracting' });
         const filePath = storage.location(id);
         // 1. Extract text per page
-        const { pages, pageCount } = await extractPdf(filePath);
+        const { pages, pageCount } = await extractPdf(filePath, {
+          ...(embeddingId === 'ollama' && process.platform === 'win32' && { ocr: recognizePdfImage }),
+          onOcr: (page, totalPages) => progress.set(id, { processingPhase: 'ocr', processingPage: page, processingPages: totalPages }),
+        });
 
         // 2. Create page-aware chunks
         const chunks = createChunks(pages);
@@ -187,7 +203,10 @@ export function createStudentService(dir, options = {}) {
 
         // 3. Generate embeddings in batch via AI provider
         const texts = chunks.map((c) => c.content);
-        const embeddings = await aiProvider.embed(texts);
+        progress.set(id, { processingPhase: 'indexing', completedChunks: 0, totalChunks: texts.length });
+        const embeddings = await aiProvider.embed(texts, { onProgress: (completedChunks, totalChunks) => {
+          progress.set(id, { processingPhase: 'indexing', completedChunks, totalChunks });
+        } });
         if (!embeddings || embeddings.length !== chunks.length || embeddings.some((vector) => vector.length !== aiProvider.dimensions || !vector.every(Number.isFinite))) {
           throw new StudentError('aiEmbeddingMismatch', 500);
         }
@@ -249,6 +268,7 @@ export function createStudentService(dir, options = {}) {
           `).run(pageCount, time, id);
         })();
 
+        progress.delete(id);
         return publicDocument(document(id));
       } catch (err) {
         // Any failure transitions document to failed and records error message
@@ -259,7 +279,7 @@ export function createStudentService(dir, options = {}) {
           WHERE id = ?
         `).run(doc.status === 'ready' ? 'ready' : 'failed', errorCode, id);
         throw err;
-      } finally { processing.delete(id); }
+      } finally { processing.delete(id); progress.delete(id); release?.(); }
     },
 
     /**

@@ -19,14 +19,22 @@ export async function searchCourseMaterials({ db, courseId, query, limit = 5, ai
   if (!compatible.length) throw new StudentError('aiIndexMismatch', 409);
   const [queryVec] = await aiProvider.embed([query.trim()], { signal });
   if (!queryVec || queryVec.length !== aiProvider.dimensions || !queryVec.every(Number.isFinite)) throw new StudentError('aiEmbeddingMismatch', 502);
+  const technicalTerms = [...new Set((query.match(/[A-Za-z][A-Za-z0-9_+-]{2,39}/g) || []).filter((term) => (term.match(/[A-Z]/g) || []).length >= 2).map((term) => term.toLowerCase()))];
+  const ocrKey = (word) => word.replace(/[i1]/g, 'l');
   const scored = compatible.map((row) => {
     // SQLite buffers can have unaligned byte offsets; DataView works for every buffer.
     const view = new DataView(row.embedding.buffer, row.embedding.byteOffset, row.embedding.byteLength);
     const vector = Array.from({ length: row.dimensions }, (_, i) => view.getFloat32(i * 4, true));
-    const score = cosineSimilarity(queryVec, vector);
-    return { chunkId: row.chunkId, documentId: row.documentId, documentName: row.documentName, pageNumber: row.pageNumber, chunkIndex: row.chunkIndex, content: row.content, score: Math.round(score * 10000) / 10000 };
+    const words = new Set((row.content.match(/[A-Za-z0-9_+-]+/g) || []).map((word) => word.toLowerCase()));
+    const ocrWords = row.content.includes('[OCR:') ? new Set([...words].map(ocrKey)) : null;
+    // Technical names should outrank a merely similar word (WSClock versus hardware clocks).
+    // OCR often confuses lowercase l, uppercase I and digit 1; tolerate that only in OCR text.
+    const namedMatch = technicalTerms.some((term) => words.has(term) || ocrWords?.has(ocrKey(term)));
+    const score = Math.min(1, cosineSimilarity(queryVec, vector) + (namedMatch ? 0.6 : 0));
+    return { chunkId: row.chunkId, documentId: row.documentId, documentName: row.documentName, pageNumber: row.pageNumber, chunkIndex: row.chunkIndex, content: row.content, score: Math.round(score * 10000) / 10000, namedMatch };
   }).filter((row) => Number.isFinite(row.score) && row.score >= minScore);
   scored.sort((a, b) => b.score - a.score || a.chunkId.localeCompare(b.chunkId));
-  return { results: scored.slice(0, Math.min(50, Math.max(1, Math.floor(Number(limit) || 5)))) };
+  const relevant = scored.some((row) => row.namedMatch) ? scored.filter((row) => row.namedMatch) : scored;
+  return { results: relevant.slice(0, Math.min(50, Math.max(1, Math.floor(Number(limit) || 5)))).map(({ namedMatch, ...row }) => row) };
 }
 

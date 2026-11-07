@@ -2,6 +2,71 @@ import { test, expect } from '@playwright/test';
 import { studentPdf } from '../fixtures/student-pdf.mjs';
 import { officeStartTimeout } from './browser-options';
 
+test('@smoke local chat: insufficient evidence can expand explicitly and answer mode survives reload per course', async ({ page, request }) => {
+  const semester = await (await request.post('/api/student/semesters', { data: { name: 'Chat modes', academicYear: '2026' } })).json();
+  const course = await (await request.post('/api/student/courses', { data: { semesterId: semester.id, name: 'Operating Systems' } })).json();
+  const other = await (await request.post('/api/student/courses', { data: { semesterId: semester.id, name: 'Other course' } })).json();
+  const doc = await (await request.post(`/api/student/courses/${course.id}/materials?filename=OS.pdf`, { headers: { 'Content-Type': 'application/pdf' }, data: studentPdf(['Operating systems manage memory.']) })).json();
+  expect((await request.post(`/api/student/documents/${doc.id}/process?sync=true`)).ok()).toBe(true);
+  await page.goto(`/student?course=${course.id}&tab=chat&lang=en`);
+  const mode = page.locator('select[id^="chat-mode-"]');
+  await expect(mode).toHaveValue('materials');
+  await expect(page.getByText(/Reprocess older files/)).toBeVisible();
+  await page.locator('textarea[id^="chat-question-"]').fill('Explain WSClock');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(page.locator('.student-chat-assistant')).toHaveCount(1);
+  await expect(page.locator('.student-chat-basis-insufficient')).toBeVisible();
+  const first = (await (await request.get(`/api/student/courses/${course.id}/chat`)).json()).turns[0];
+  await page.getByRole('button', { name: 'Ask again with Materials + expanded knowledge', exact: true }).click();
+  await expect(page.locator('.student-chat-assistant')).toHaveCount(2);
+  await expect(mode).toHaveValue('expanded');
+  await expect(page.locator('.student-chat-assistant').last()).toContainText('Additional model knowledge (unverified)');
+  await expect(page.locator('.student-chat-assistant').last().locator('.student-chat-sources')).toHaveCount(0);
+  const turns = (await (await request.get(`/api/student/courses/${course.id}/chat`)).json()).turns;
+  expect(turns[0]).toEqual(first);
+  expect(turns[1].mode).toBe('expanded'); expect(turns[1].requestId).not.toBe(first.requestId);
+  expect(turns[1].messages[0].content).toBe('Explain WSClock');
+  await page.reload(); await expect(mode).toHaveValue('expanded');
+  await page.goto(`/student?course=${other.id}&tab=chat&lang=en`); await expect(mode).toHaveValue('materials');
+  await page.goto(`/student?course=${course.id}&tab=chat&lang=en`); await expect(mode).toHaveValue('expanded');
+});
+
+test('@smoke local PDF batch: drop four, add two while indexing, keep valid files in a mixed selection', async ({ page, request }) => {
+  const semester = await (await request.post('/api/student/semesters', { data: { name: 'Batch PDFs', academicYear: '2026' } })).json();
+  const course = await (await request.post('/api/student/courses', { data: { semesterId: semester.id, name: 'Batch course' } })).json();
+  await page.goto(`/student?course=${course.id}&lang=en`);
+  const bytes = studentPdf(['Batch upload: aggregation and composition.']);
+  const transfer = await page.evaluateHandle((data) => {
+    const value = new DataTransfer();
+    for (let i = 1; i <= 4; i++) value.items.add(new File([new Uint8Array(data)], `batch-${i}.pdf`, { type: 'application/pdf' }));
+    return value;
+  }, Array.from(bytes));
+  await page.locator('.student-dropzone').dispatchEvent('drop', { dataTransfer: transfer });
+  await transfer.dispose();
+  const input = page.getByLabel('Add PDF', { exact: true });
+  await expect(input).toBeEnabled();
+  await expect(page.locator('.student-materials li')).toHaveCount(4);
+  const firstBatch = await (await request.get(`/api/student/courses/${course.id}/materials`)).json();
+  expect(firstBatch.some((d: { status: string }) => d.status === 'processing')).toBe(true);
+  await input.setInputFiles([5, 6].map((i) => ({ name: `batch-${i}.pdf`, mimeType: 'application/pdf', buffer: bytes })));
+  await expect(page.locator('.student-materials li')).toHaveCount(6);
+  await expect.poll(async () => {
+    const docs = await (await request.get(`/api/student/courses/${course.id}/materials`)).json();
+    return docs.filter((d: { status: string }) => d.status === 'ready').length;
+  }).toBe(6);
+  await input.setInputFiles([
+    { name: 'invalid.txt', mimeType: 'text/plain', buffer: Buffer.from('invalid') },
+    { name: 'batch-7.pdf', mimeType: 'application/pdf', buffer: bytes },
+  ]);
+  await expect(page.locator('.student-error')).toContainText('invalid.txt');
+  await expect(page.getByText('batch-7.pdf', { exact: true })).toBeVisible();
+  await expect.poll(async () => (await (await request.get(`/api/student/courses/${course.id}/materials`)).json()).filter((d: { status: string }) => d.status === 'ready').length).toBe(7);
+  await page.reload();
+  await expect(page.locator('.student-materials li')).toHaveCount(7);
+  await expect(page.locator('.student-status-failed')).toHaveCount(0);
+  await page.screenshot({ path: test.info().outputPath('local-pdf-batch.png'), fullPage: true });
+});
+
 test('@smoke local learning: PDF drop, scoped answers, expanded mode, cancel/retry, Office and mobile', async ({ page, request, context }) => {
   const errors: string[] = [], external: string[] = [];
   page.on('pageerror', (error) => errors.push(error.message));

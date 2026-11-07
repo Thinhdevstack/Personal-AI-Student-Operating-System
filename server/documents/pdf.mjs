@@ -19,7 +19,7 @@ async function loadPdfjs() {
  * @param {string | Uint8Array | Buffer} input Absolute file path or raw PDF bytes.
  * @returns {Promise<{ pageCount: number; pages: { pageNumber: number; page: number; text: string }[] }>}
  */
-export async function extractPdf(input) {
+export async function extractPdf(input, { ocr, onOcr } = {}) {
   const pdfjs = await loadPdfjs();
   let data;
   if (typeof input === 'string') {
@@ -73,6 +73,17 @@ export async function extractPdf(input) {
       }
       // Normalize whitespace while preserving paragraphs
       text = text.replace(/[ \t]+/g, ' ').replace(/\n\s+/g, '\n').trim();
+      // Sparse text with a raster image is common in slide decks and scanned tables.
+      // Keep the native text and add OCR instead of silently indexing only the heading.
+      if (ocr && text.length < 250) {
+        const operators = await page.getOperatorList();
+        const imageOps = [pdfjs.OPS.paintImageXObject, pdfjs.OPS.paintInlineImageXObject, pdfjs.OPS.paintImageXObjectRepeat];
+        if (operators.fnArray.some((op) => imageOps.includes(op))) {
+          onOcr?.(i, pageCount);
+          const recognized = await ocr(page);
+          if (recognized.trim()) text = [text, '[OCR: text recognized from page image; may contain errors]', recognized.trim()].filter(Boolean).join('\n');
+        }
+      }
       if (text) {
         totalTextLength += text.length;
         pages.push({ pageNumber: i, page: i, text });

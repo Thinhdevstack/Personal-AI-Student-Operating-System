@@ -21,6 +21,7 @@ export function createOllama(options = {}) {
   const timeoutMs = integer(options.timeoutMs ?? process.env.OLLAMA_TIMEOUT_MS, 180000, 10, 240000);
   const numCtx = integer(process.env.OLLAMA_CONTEXT_SIZE, 8192, 2048, 16384);
   let busy = false;
+  const waiters = [];
   async function request(endpoint, body, signal, timeout = timeoutMs) {
     const deadline = AbortSignal.timeout(timeout);
     const combined = signal ? AbortSignal.any([signal, deadline]) : deadline;
@@ -56,22 +57,40 @@ export function createOllama(options = {}) {
       throw new StudentError('ollamaUnavailable', 503);
     }
   }
-  async function exclusive(work, signal) {
+  async function exclusive(work, signal, wait = false) {
     if (signal?.aborted) throw new StudentError('chatCancelled', 409);
-    if (busy) throw new StudentError('ollamaBusy', 429);
+    if (busy) {
+      if (!wait || waiters.length >= 32) throw new StudentError('ollamaBusy', 429);
+      await new Promise((resolve, reject) => {
+        const entry = { resolve: () => { signal?.removeEventListener('abort', abort); resolve(); } };
+        const abort = () => {
+          const index = waiters.indexOf(entry);
+          if (index >= 0) waiters.splice(index, 1);
+          reject(new StudentError('chatCancelled', 409));
+        };
+        waiters.push(entry);
+        signal?.addEventListener('abort', abort, { once: true });
+      });
+    }
     busy = true;
-    try { return await work(); } finally { busy = false; }
+    try {
+      if (signal?.aborted) throw new StudentError('chatCancelled', 409);
+      return await work();
+    } finally {
+      const next = waiters.shift();
+      if (next) next.resolve(); else busy = false;
+    }
   }
   const embedding = {
     providerId: 'ollama', model: 'ollama/' + embedModel, dimensions,
     version: process.env.OLLAMA_EMBEDDING_VERSION || '', isMock: false, configured: true,
-    async embed(texts, { signal } = {}) {
+    async embed(texts, { signal, onProgress } = {}) {
       if (!Array.isArray(texts) || !texts.length) return [];
       return exclusive(async () => {
         const vectors = [];
         for (let start = 0; start < texts.length; start += 8) {
           const batch = texts.slice(start, start + 8);
-          const data = await request('/api/embed', { model: embedModel, input: batch, dimensions, truncate: false, keep_alive: start + batch.length >= texts.length ? 0 : '1m' }, signal);
+          const data = await request('/api/embed', { model: embedModel, input: batch, dimensions, truncate: false, keep_alive: '2m' }, signal);
           if (!Array.isArray(data.embeddings) || data.embeddings.length !== batch.length) throw new StudentError('aiEmbeddingMismatch', 502);
           for (const v of data.embeddings) {
             if (!Array.isArray(v) || v.length !== dimensions || !v.every(Number.isFinite)) throw new StudentError('aiEmbeddingMismatch', 502);
@@ -79,9 +98,10 @@ export function createOllama(options = {}) {
             if (!Number.isFinite(norm) || !norm) throw new StudentError('aiEmbeddingMismatch', 502);
             vectors.push(v.map((n) => n / norm));
           }
+          onProgress?.(vectors.length, texts.length);
         }
         return vectors;
-      }, signal);
+      }, signal, true);
     },
   };
   const chat = {
@@ -96,7 +116,7 @@ export function createOllama(options = {}) {
           properties: { ...TUTOR_FORMAT.schema.properties, additionalKnowledge: { type: 'string' } },
           required: [...TUTOR_FORMAT.schema.required, 'additionalKnowledge'],
         } : TUTOR_FORMAT.schema;
-        const partsInstruction = structuredParts ? '\nFor this response the JSON has one extra required string: additionalKnowledge. Put ONLY statements supported by the excerpts in answer. Put any new explanation, example or model knowledge in additionalKnowledge. If there is no supported answer, use basis=general, answer="", sourceIds=[] and put the useful explanation in additionalKnowledge. If evidence and knowledge are insufficient, use basis=insufficient and explain what is missing in answer. Never claim web research. Keep additions short; avoid uncertain factual claims and sweeping rules. The application adds section headings; do not duplicate them.' : '\nReuse the example entities present in the excerpts. Do not introduce new examples or technical facts absent from the excerpts.';
+        const partsInstruction = structuredParts ? '\nEXPANDED RESPONSE SCHEMA: additionalKnowledge is a required string. Put ONLY statements supported by excerpts in answer. Put your own explanation, example and model knowledge in additionalKnowledge. If excerpts do not support the question but you know the course concept, use basis=general, answer="", sourceIds=[] and give a useful explanation in additionalKnowledge. Do not just repeat the question or stop at saying the PDF lacks information. Use basis=insufficient only if you cannot explain reliably even from your own knowledge; then explain the limitation in answer and leave additionalKnowledge empty. Never claim web research. Keep additions short; avoid uncertain factual claims and sweeping rules. The application adds section headings; do not duplicate them.' : '\nReuse the example entities present in the excerpts. Do not introduce new examples or technical facts absent from the excerpts. If an excerpt only lists an algorithm in a table with a short assessment, report only that and explain that its steps are not described. Do not infer its mechanism, expand acronyms or make performance comparisons not stated in the excerpts.';
         const data = await request('/api/chat', {
           model: chatModel, stream: false, think: false, keep_alive: '2m',
           messages: [{ role: 'system', content: context.instructions + partsInstruction }, ...context.input],
@@ -114,7 +134,7 @@ export function createOllama(options = {}) {
           const parts = [];
           if (answer.basis === 'materials' && answer.answer.trim()) parts.push(fromFile + '\n' + answer.answer.trim());
           else if (answer.basis === 'insufficient' && answer.answer.trim()) parts.push(answer.answer.trim());
-          const extra = [answer.basis === 'general' ? answer.answer.trim() : '', answer.additionalKnowledge.trim()].filter(Boolean).join('\n');
+          const extra = answer.basis === 'insufficient' ? '' : [answer.basis === 'general' ? answer.answer.trim() : '', answer.additionalKnowledge.trim()].filter(Boolean).join('\n');
           if (extra) parts.push(fromModel + '\n' + extra);
           answer = { ...answer, answer: parts.join('\n\n') };
         }

@@ -124,10 +124,34 @@ test('context budgets, follow-up retrieval and citations only use supplied evide
   assert.match(context.instructions, /untrusted/);
   assert.ok(!context.instructions.includes('Ignore previous instructions'));
   assert.match(retrievalQuestion('Give an example', [{ role: 'user', content: 'Aggregation vs composition' }]), /Aggregation/);
+  assert.equal(retrievalQuestion('Explain WSClock', [{ role: 'user', content: 'Explain LRU' }]), 'Explain WSClock');
+  assert.equal(retrievalQuestion('Giải thích WSClock', [{ role: 'user', content: 'Giải thích LRU' }]), 'Giải thích WSClock');
+  assert.match(retrievalQuestion('Cho ví dụ', [{ role: 'user', content: 'Giải thích LRU' }]), /LRU/);
   const result = validateTutorAnswer({ answer: 'Explanation [S999]', basis: 'materials', sourceIds: ['S1', 'S999'] }, context.sources);
   assert.equal(result.sources.length, 1); assert.equal(result.sources[0].chunkId, 'chunk0'); assert.ok(!result.answer.includes('S999'));
   assert.throws(() => validateTutorAnswer({ answer: 'fake', basis: 'materials', sourceIds: ['S999'] }, context.sources), /aiInvalidCitation/);
   assert.equal(validateTutorAnswer({ answer: 'General knowledge', basis: 'general', sourceIds: ['S1'] }, context.sources).sources.length, 0);
+});
+
+test('named algorithms in OCR outrank semantically similar hardware clocks without crossing courses', async (t) => {
+  const f = setup(t);
+  const named = await material(f, f.course, 'Memory.pdf', '[OCR: text recognized from page image; may contain errors] WSCIock | Page replacement algorithm. LRU Least Recently Used.');
+  await material(f, f.course, 'Hardware.pdf', 'Hardware clocks and disk clocks measure time.');
+  const other = f.service.createCourse({ semesterId: f.semester.id, name: 'Other' });
+  await material(f, other, 'Other.pdf', 'WSClock unrelated course material.');
+  const results = (await f.service.search(f.course.id, 'Explain WSClock', 1)).results;
+  assert.equal(results.length, 1); assert.equal(results[0].documentId, named.id);
+});
+
+test('an expanded answer that only echoes the question explains the model limitation instead of requesting expanded mode again', async (t) => {
+  const f = setup(t); await material(f);
+  f.provider.chat = async () => ({ answer: 'Explain WSClock', basis: 'insufficient', sourceIds: [] });
+  const history = await f.service.sendChat({ ...question(f.course.id, 'Explain WSClock'), mode: 'expanded' });
+  const answer = history.turns.at(-1).messages[1];
+  assert.equal(answer.basis, 'insufficient');
+  assert.match(answer.content, /could not explain this reliably/);
+  assert.ok(!answer.content.includes('choose Materials + expanded'));
+  assert.deepEqual(answer.sources, []);
 });
 
 test('low-relevance excerpts produce no invented sources', async (t) => {

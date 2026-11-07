@@ -8,12 +8,15 @@ const server = http.createServer(async (req, res) => {
   if (req.url === '/api/tags') return res.end(JSON.stringify({ models: [{ name: 'qwen3:4b' }, { name: 'embeddinggemma:latest' }] }));
   const chunks = []; for await (const chunk of req) chunks.push(chunk);
   const body = JSON.parse(Buffer.concat(chunks).toString());
-  if (req.url === '/api/embed') return res.end(JSON.stringify({ embeddings: await embedding.embed(body.input) }));
+  if (req.url === '/api/embed') {
+    if (body.input.some((text) => text.includes('Batch upload'))) await new Promise((resolve) => setTimeout(resolve, 500));
+    return res.end(JSON.stringify({ embeddings: await embedding.embed(body.input) }));
+  }
   const payload = JSON.parse(body.messages.at(-1).content);
   const respond = () => {
     if (res.destroyed) return;
     const source = payload.sources[0];
-    const general = payload.question.includes('outside');
+    const general = payload.question.includes('outside') || payload.question.includes('WSClock');
     res.end(JSON.stringify({ done: true, done_reason: 'stop', message: { content: JSON.stringify({ answer: 'Ollama protocol fixture: ' + (general ? 'General explanation' : source?.content || 'General explanation'), additionalKnowledge: '', basis: source && !general ? 'materials' : 'general', sourceIds: source && !general ? [source.sourceId] : [] }) } }));
   };
   if (payload.question.includes('Cancel')) {

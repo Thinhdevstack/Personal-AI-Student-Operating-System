@@ -33,6 +33,8 @@ export default function StudentWorkspace({ lang, studentDemo = false, studentLoc
   const [searchResults, setSearchResults] = useState<SearchResult[] | null>(null);
   const [searching, setSearching] = useState(false);
   const [dragging, setDragging] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ completed: number; total: number; name: string } | null>(null);
+  const [uploadFailures, setUploadFailures] = useState<{ name: string; code: string }[]>([]);
   const uploadLock = useRef(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
 
@@ -121,16 +123,31 @@ export default function StudentWorkspace({ lang, studentDemo = false, studentLoc
   }
   function uploadFiles(files: File[]) {
     if (busy || uploadLock.current || !course || course.status !== 'active') return;
-    if (files.length !== 1) { setError('onePdf'); return; }
-    const file = files[0];
-    if (!/\.pdf$/i.test(file.name)) { setError('invalidFile'); return; }
-    if (!file.size || file.size > MAX_PDF_BYTES) { setError('fileTooLarge'); return; }
+    if (!files.length) return;
     const target = course.id;
     uploadLock.current = true;
-    void run(async () => {
-      const uploaded = await api.upload(target, file);
-      void api.processDocument(uploaded.id).finally(() => setRevision((r) => r + 1)).catch(() => {});
-    }).finally(() => { uploadLock.current = false; });
+    setBusy(true); setError(''); setNotice(''); setUploadFailures([]);
+    void (async () => {
+      const failures: { name: string; code: string }[] = [];
+      // Save sequentially so a batch cannot exceed the server's upload limit.
+      // Processing is queued on the server and does not hold up the next upload.
+      for (const [index, file] of files.entries()) {
+        setUploadProgress({ completed: index, total: files.length, name: file.name });
+        try {
+          if (!/\.pdf$/i.test(file.name)) throw new api.AcademicApiError('invalidFile');
+          if (!file.size || file.size > MAX_PDF_BYTES) throw new api.AcademicApiError('fileTooLarge');
+          const uploaded = await api.upload(target, file);
+          setRevision((r) => r + 1);
+          await api.processDocument(uploaded.id);
+        } catch (err) {
+          failures.push({ name: file.name, code: err instanceof api.AcademicApiError ? err.message : 'network' });
+          setUploadFailures([...failures]);
+        }
+        setRevision((r) => r + 1);
+      }
+      refreshSnapshot();
+      if (!failures.length) setNotice('local.filesSaved');
+    })().finally(() => { uploadLock.current = false; setUploadProgress(null); setBusy(false); });
   }
   async function saveEditor(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -168,8 +185,10 @@ export default function StudentWorkspace({ lang, studentDemo = false, studentLoc
         <small>
           {(item.sizeBytes / 1024).toFixed(1)} KiB · {new Date(item.uploadedAt).toLocaleDateString(lang)} ·{' '}
           <span className={`student-status-badge student-status-${item.status}`}>
-            {t(`status.${item.status}`)}
+            {t(item.status === 'processing' && item.processingPhase ? `local.${item.processingPhase}` : `status.${item.status}`)}
           </span>
+          {item.status === 'processing' && item.processingPhase === 'indexing' && !!item.totalChunks && <span> · {item.completedChunks || 0}/{item.totalChunks} {t('chunks')}</span>}
+          {item.status === 'processing' && item.processingPhase === 'ocr' && <span> · {item.processingPage}/{item.processingPages} {t('pages')}</span>}
           {item.status === 'ready' && item.indexReady === false && <span className="student-index-hint">{t('local.reindexHint')}</span>}
           {item.processingError && item.status === 'ready' && <span>{t(`errors.${item.processingError}`)}</span>}
           {item.status === 'ready' && item.pageCount && ` · ${item.pageCount} ${t('pages')}`}
@@ -244,11 +263,13 @@ export default function StudentWorkspace({ lang, studentDemo = false, studentLoc
           <section className="student-panel">
             {course.status === 'archived' && <p className="student-archive-note">{t('archivedHint')}</p>}
             {tab === 'overview' && <><h2>{course.name}</h2><p>{course.description || t('selectCourse')}</p><p>{t('semester')}: {semester.name} · {semester.academicYear}</p><p>{t(`status.${course.status}`)}</p><button onClick={() => setTab('materials')}>{t('materials')} →</button></>}
-            {tab === 'materials' && <><div className="student-section-heading"><h2>{t('materials')}</h2>{course.status === 'active' && <label className={`student-upload ${busy ? 'is-disabled' : ''}`}>{t('upload')}<input aria-label={t('upload')} type="file" accept=".pdf,application/pdf" disabled={busy} onChange={(event) => {
+            {tab === 'materials' && <><div className="student-section-heading"><h2>{t('materials')}</h2>{course.status === 'active' && <label className={`student-upload ${busy ? 'is-disabled' : ''}`}>{t('upload')}<input aria-label={t('upload')} type="file" accept=".pdf,application/pdf" multiple disabled={busy} onChange={(event) => {
               const files = Array.from(event.target.files || []); event.target.value = '';
               if (files.length) uploadFiles(files);
             }} /></label>}</div><p>{t('pdfHint')}</p>
               {course.status === 'active' && <div className={`student-dropzone${dragging ? ' is-dragging' : ''}`} onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = busy ? 'none' : 'copy'; }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }} onDrop={(event) => { event.preventDefault(); setDragging(false); uploadFiles(Array.from(event.dataTransfer.files)); }} aria-busy={busy}>{t(busy ? 'local.uploading' : 'local.dropPdf')}</div>}
+              {uploadProgress && <p role="status">{t('local.uploading')} {uploadProgress.completed}/{uploadProgress.total} · {uploadProgress.name}</p>}
+              {!!uploadFailures.length && <ul className="student-error" role="alert">{uploadFailures.map((failure, index) => <li key={index}>{failure.name}: {t(`errors.${failure.code}`)}</li>)}</ul>}
               {courseMaterials === null ? <p>{t('loading')}</p> : courseMaterials.length ? materialList(courseMaterials) : <div className="student-empty">{t('emptyMaterials')}</div>}
               <p className="student-footnote">{t('uploadedHint')}</p>
 
