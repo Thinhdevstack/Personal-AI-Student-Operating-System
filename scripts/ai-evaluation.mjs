@@ -254,8 +254,14 @@ export function summarizeResults(results, reviews = []) {
   const statistics = (values) => { const sorted = values.filter(Number.isFinite).sort((a, b) => a - b); if (!sorted.length) return null; const mid = Math.floor(sorted.length / 2); return { n: sorted.length, median: sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2, min: sorted[0], max: sorted.at(-1), mean: sorted.reduce((sum, n) => sum + n, 0) / sorted.length }; };
   const base = (rows) => {
     const eligible = rows.filter((r) => r.gradingEligible !== false);
+    const totalMsList = rows.map((r) => r.timings.totalMs).filter(Number.isFinite);
+    const under30sCount = totalMsList.filter((ms) => ms < 30000).length;
+    const modelCallList = rows.flatMap((r) => r.nativeCalls || []).filter((c) => c.endpoint === '/api/chat');
+    const tokenSpeedList = modelCallList.map((c) => (c.outputTokens && c.totalDurationNs ? (c.outputTokens / (c.totalDurationNs / 1e9)) : null)).filter(Number.isFinite);
     return {
       n: rows.length, httpOK: rows.filter((r) => r.httpStatus === 200).length,
+      under30s: { count: under30sCount, ratio: totalMsList.length ? Number((under30sCount / totalMsList.length).toFixed(3)) : null },
+      tokensPerSec: statistics(tokenSpeedList),
       basis: Object.fromEntries(['materials', 'general', 'insufficient'].map((basis) => [basis, rows.filter((r) => r.answer?.basis === basis).length])),
       retrieval: statistics(rows.map((r) => r.recallAt5)),
       timingMs: { total: statistics(rows.map((r) => r.timings.totalMs)), retrieval: statistics(rows.map((r) => r.timings.retrievalMs)), model: statistics(rows.map((r) => r.timings.modelMs)) },

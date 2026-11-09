@@ -116,7 +116,9 @@ export function createOllama(options = {}) {
           properties: { ...TUTOR_FORMAT.schema.properties, additionalKnowledge: { type: 'string' } },
           required: [...TUTOR_FORMAT.schema.required, 'additionalKnowledge'],
         } : TUTOR_FORMAT.schema;
-        const partsInstruction = structuredParts ? '\nEXPANDED RESPONSE SCHEMA: additionalKnowledge is a required string. Put ONLY statements supported by excerpts in answer. Put your own explanation, example and model knowledge in additionalKnowledge. If excerpts do not support the question but you know the course concept, use basis=general, answer="", sourceIds=[] and give a useful explanation in additionalKnowledge. Do not just repeat the question or stop at saying the PDF lacks information. Use basis=insufficient only if you cannot explain reliably even from your own knowledge; then explain the limitation in answer and leave additionalKnowledge empty. Never claim web research. Keep additions short; avoid uncertain factual claims and sweeping rules. The application adds section headings; do not duplicate them.' : '\nAnswer the question directly from the excerpts. When excerpts list items, benefits, or definitions, report them completely. When formulas or rules in excerpts apply to user inputs, compute the solution step-by-step. Do not introduce unsupported external facts absent from the excerpts. Never repeat the question.';
+        const partsInstruction = structuredParts
+          ? '\nEXPANDED SCHEMA: Put statements from excerpts in "answer". Put your own explanation, example, and general knowledge in "additionalKnowledge". If excerpts lack info but you know the concept, use basis="general", answer="", sourceIds=[] and explain in "additionalKnowledge". If you also cannot answer reliably, use basis="insufficient", explain what is missing and advise how to proceed in "answer", and leave "additionalKnowledge" empty. The UI adds section headers automatically.'
+          : '\nDOCUMENT MODE: Answer directly using excerpts. If formulas or rules apply, compute step-by-step. Do not invent facts outside excerpts.';
         const data = await request('/api/chat', {
           model: chatModel, stream: false, think: false, keep_alive: '2m',
           messages: [{ role: 'system', content: context.instructions + partsInstruction }, ...context.input],
@@ -138,7 +140,21 @@ export function createOllama(options = {}) {
           if (extra) parts.push(fromModel + '\n' + extra);
           answer = { ...answer, answer: parts.join('\n\n') };
         }
-        return { ...answer, model: chatModel, isMock: false };
+        const totalNs = Number(data.total_duration || 0);
+        const promptNs = Number(data.prompt_eval_duration || 0);
+        const evalNs = Number(data.eval_duration || 0);
+        const promptCount = Number(data.prompt_eval_count || 0);
+        const evalCount = Number(data.eval_count || 0);
+        const metrics = {
+          totalMs: Math.round(totalNs / 1e6),
+          promptMs: Math.round(promptNs / 1e6),
+          evalMs: Math.round(evalNs / 1e6),
+          promptTokens: promptCount,
+          evalTokens: evalCount,
+          evalTokensPerSec: evalNs > 0 ? Number(((evalCount / evalNs) * 1e9).toFixed(1)) : 0,
+          promptTokensPerSec: promptNs > 0 ? Number(((promptCount / promptNs) * 1e9).toFixed(1)) : 0,
+        };
+        return { ...answer, model: chatModel, isMock: false, metrics };
       }, signal);
     },
   };
