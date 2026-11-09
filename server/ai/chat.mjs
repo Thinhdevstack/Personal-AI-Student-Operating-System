@@ -10,6 +10,34 @@ import { registryForProvider } from './providers.mjs';
 const uuid = (value) => typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 const time = () => new Date().toISOString();
 
+function normalizeEchoText(text) {
+  return text
+    .normalize('NFD')
+    .replace(/\p{M}/gu, '')
+    .replace(/đ/g, 'd')
+    .toLowerCase()
+    .replace(/[^\w\s]/g, ' ')
+    .replace(/\b(ban|toi|em|thay|co|minh|your|my|you|i)\b/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function isQuestionEcho(answer, question) {
+  if (!answer || !question) return false;
+  const aNorm = normalizeEchoText(answer);
+  const qNorm = normalizeEchoText(question);
+  if (!aNorm || !qNorm) return false;
+  if (aNorm === qNorm) return true;
+  const aTokens = new Set(aNorm.split(' ').filter(Boolean));
+  const qTokens = new Set(qNorm.split(' ').filter(Boolean));
+  let match = 0;
+  for (const t of aTokens) {
+    if (qTokens.has(t)) match++;
+  }
+  const jaccard = match / Math.max(aTokens.size, qTokens.size);
+  return jaccard >= 0.8 && aTokens.size <= qTokens.size + 3;
+}
+
 export function createCourseChat({ db, aiProvider, memory = createMemoryService({ db }), activity, aiRegistry = registryForProvider(aiProvider) }) {
   const running = new Map();
   const key = (courseId, requestId) => courseId + ':' + requestId;
@@ -103,11 +131,19 @@ export function createCourseChat({ db, aiProvider, memory = createMemoryService(
       phase = 'ai.respond'; emit(phase, 'started');
       let response = await selection.provider.chat(context, { signal });
       checkCancelled();
-      if ((claimed.mode === 'materials' && response.basis === 'general') || (response.basis === 'insufficient' && response.answer?.trim().toLowerCase() === message.toLowerCase())) {
+      const echoed = isQuestionEcho(response.answer, message);
+      if ((claimed.mode === 'materials' && response.basis === 'general') || (response.basis === 'insufficient' && (echoed || response.answer?.trim().toLowerCase() === message.toLowerCase())) || (response.basis === 'materials' && echoed)) {
         const unavailable = claimed.mode === 'expanded'
           ? (language === 'vi' ? 'Mô hình local chưa giải thích được câu này một cách tin cậy. Hãy bổ sung tài liệu mô tả chi tiết hoặc nêu rõ ngữ cảnh của thuật ngữ.' : 'The model could not explain this reliably. Add detailed material or clarify the context of the term.')
           : (language === 'vi' ? 'Tài liệu truy xuất chưa đủ căn cứ để trả lời câu hỏi này. Hãy bổ sung tài liệu hoặc chọn Tài liệu + mở rộng.' : 'The retrieved materials do not provide enough evidence. Add a document or choose Materials + expanded knowledge.');
         response = { ...response, answer: unavailable, basis: 'insufficient', sourceIds: [] };
+      }
+      if (response.basis === 'materials' && (!Array.isArray(response.sourceIds) || !response.sourceIds.length)) {
+        if (context.sources.length > 0) {
+          response = { ...response, sourceIds: [context.sources[0].sourceId] };
+        } else {
+          response = { ...response, basis: 'insufficient', sourceIds: [] };
+        }
       }
       const answer = validateTutorAnswer(response, context.sources);
       db.transaction(() => {

@@ -1,0 +1,42 @@
+{
+  "schemaVersion": 1,
+  "title": "Replace placeholders using inventory output and verified source pages",
+  "repeatIds": ["T01"],
+  "cases": [
+    {
+      "id": "T01",
+      "courseId": "REPLACE_WITH_COURSE_ID_FROM_INVENTORY",
+      "language": "vi",
+      "group": "text",
+      "question": "REPLACE_WITH_A_QUESTION_SUPPORTED_BY_YOUR_PDF",
+      "modes": ["materials"],
+      "keyPoints": ["REPLACE_WITH_VERIFIED_EXPECTED_FACTS"],
+      "mustNotClaim": ["REPLACE_WITH_UNSUPPORTED_OR_FALSE_CLAIMS"],
+      "referenceConfidence": "high",
+      "gradingEligible": false,
+      "evidence": [
+        {
+          "documentSha256": "REPLACE_WITH_SHA256_FROM_INVENTORY",
+          "page": 1,
+          "slidePage": "REPLACE_WITH_PRINTED_PAGE_OR_NULL",
+          "kind": "native",
+          "quote": "REPLACE_WITH_SHORT_VERIFIED_SOURCE_EXCERPT",
+          "anchors": ["REPLACE_WITH_EXPECTED_EXTRACTED_TEXT"]
+        }
+      ]
+    },
+    {
+      "id": "U01",
+      "courseId": "REPLACE_WITH_COURSE_ID_FROM_INVENTORY",
+      "language": "vi",
+      "group": "insufficient",
+      "question": "REPLACE_WITH_A_QUESTION_MISSING_REQUIRED_INPUT",
+      "modes": ["materials"],
+      "keyPoints": ["Ask for the missing input; do not invent a result."],
+      "mustNotClaim": ["A numerical answer without the required data."],
+      "referenceConfidence": "high",
+      "gradingEligible": false,
+      "evidence": []
+    }
+  ]
+}
