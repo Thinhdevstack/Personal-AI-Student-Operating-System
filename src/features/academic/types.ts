@@ -43,6 +43,24 @@ export interface Material {
   processingError?: string | null;
   processedAt?: string | null;
   chunkCount?: number;
+  embeddedChunks?: number;
+  coverageStatus?: 'full' | 'partial' | 'ocr_fallback' | 'empty' | 'unknown';
+  extractorVersion?: string;
+  pagesWithText?: number;
+  pagesOcr?: number;
+  pagesWarning?: number;
+}
+
+export interface DocumentPage {
+  documentId: string;
+  pageNumber: number;
+  method: 'native' | 'ocr' | 'combined' | 'none';
+  status: 'extracted' | 'ocr_applied' | 'ocr_failed' | 'empty';
+  charCount: number;
+  warningCode?: string | null;
+  ocrLanguage?: string | null;
+  ocrEngine?: string | null;
+  extractedAt: string;
 }
 
 export interface SearchResult {

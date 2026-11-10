@@ -21,7 +21,7 @@ export function ocrLinesToText(lines) {
   return rows.map((row) => row.lines.sort((a, b) => a.x - b.x).map((line) => line.text.trim()).join(' | ')).join('\n').slice(0, 100000);
 }
 
-export async function recognizePdfImage(page) {
+export async function recognizePdfPageWithMeta(page) {
   if (process.platform !== 'win32') throw new StudentError('ocrUnavailable', 503);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'student-ocr-'));
   try {
@@ -39,10 +39,21 @@ export async function recognizePdfImage(page) {
     });
     const result = JSON.parse(stdout.replace(/^\uFEFF/, '').trim());
     if (!Array.isArray(result.lines)) throw new Error('Invalid OCR result');
-    return ocrLinesToText(result.lines);
-  } catch { throw new StudentError('ocrUnavailable', 503); }
-  finally {
+    return {
+      text: ocrLinesToText(result.lines),
+      language: result.language || 'en-US',
+      engine: 'Windows.Media.Ocr',
+    };
+  } catch (error) {
+    if (error instanceof StudentError) throw error;
+    throw new StudentError('ocrUnavailable', 503);
+  } finally {
     // mkdtemp creates this exact child inside the system temp directory.
     if (path.dirname(dir) === path.resolve(os.tmpdir()) && path.basename(dir).startsWith('student-ocr-')) fs.rmSync(dir, { recursive: true, force: true });
   }
+}
+
+export async function recognizePdfImage(page) {
+  const result = await recognizePdfPageWithMeta(page);
+  return result.text;
 }

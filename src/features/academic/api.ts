@@ -1,4 +1,4 @@
-import type { AcademicSnapshot, Material, SearchResult } from './types';
+import type { AcademicSnapshot, DocumentPage, Material, SearchResult } from './types';
 
 export class AcademicApiError extends Error {}
 
@@ -34,11 +34,26 @@ export const upload = (courseId: string, file: File) =>
     headers: { 'Content-Type': 'application/pdf' },
     body: file,
   });
-export const processDocument = (id: string, sync = false) =>
-  request<{ ok?: boolean; id?: string; status?: string; document?: Material }>(
+export const processDocument = (
+  id: string,
+  options?: { sync?: boolean; pages?: number[]; forceOcr?: boolean } | boolean
+) => {
+  const sync = typeof options === 'boolean' ? options : options?.sync === true;
+  const hasBody = typeof options === 'object' && (options.pages || options.forceOcr);
+  return request<{ ok?: boolean; id?: string; status?: string; document?: Material }>(
     `documents/${id}/process${sync ? '?sync=true' : ''}`,
-    { method: 'POST' }
+    {
+      method: 'POST',
+      ...(hasBody && {
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pages: options.pages, forceOcr: options.forceOcr }),
+      }),
+    }
   );
+};
+
+export const documentPages = (id: string, signal?: AbortSignal) =>
+  request<{ pages: DocumentPage[] }>(`documents/${id}/pages`, { signal });
 export const searchCourse = (courseId: string, query: string, limit = 5) =>
   request<{ results: SearchResult[] }>(`courses/${courseId}/search`, {
     method: 'POST',

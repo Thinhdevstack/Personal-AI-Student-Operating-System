@@ -16,6 +16,7 @@ export function openStudentDatabase(dir) {
       new URL('./migrations/004-memory.sql', import.meta.url),
       new URL('./migrations/005-chat-provider.sql', import.meta.url),
       new URL('./migrations/006-local-tutor.sql', import.meta.url),
+      new URL('./migrations/007-document-coverage.sql', import.meta.url),
     ];
     db.transaction(() => {
       for (const [index, file] of migrations.entries()) {

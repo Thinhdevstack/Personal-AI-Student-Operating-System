@@ -24,6 +24,7 @@ function readBytes(req, limit) {
 async function readObject(req) {
   if (req.headers['content-type']?.split(';')[0] !== 'application/json') throw new StudentError('invalidInput', 415);
   const bytes = await readBytes(req, 16_384);
+  if (bytes.length === 0) return {};
   try {
     const value = JSON.parse(bytes.toString('utf8'));
     if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('object required');
@@ -107,15 +108,28 @@ export function createStudentRoutes({ service, authorized, sameOrigin, demoSeed 
       }
       if (parts.length === 3 && kind === 'documents' && child === 'process' && req.method === 'POST') {
         const sync = url.searchParams.get('sync') === 'true';
+        let options = {};
+        if (req.headers['content-type']?.includes('application/json')) {
+          const body = await readObject(req);
+          if (body && typeof body === 'object') {
+            if (Array.isArray(body.pages)) {
+              options.pages = body.pages.map(Number).filter((n) => Number.isInteger(n) && n > 0);
+            }
+            if (body.forceOcr === true) options.forceOcr = true;
+          }
+        }
         if (sync) {
-          const doc = await service.processDocument(id);
+          const doc = await service.processDocument(id, options);
           return send(res, 200, { ok: true, document: doc });
         }
         // Async processing
-        void service.processDocument(id).catch((err) => {
+        void service.processDocument(id, options).catch((err) => {
           console.error(`Document ${id} processing failed:`, err);
         });
         return send(res, 202, { id, status: 'processing' });
+      }
+      if (parts.length === 3 && kind === 'documents' && child === 'pages' && req.method === 'GET') {
+        return send(res, 200, { pages: service.documentPages(id) });
       }
       if (parts.length === 3 && kind === 'documents' && child === 'chunks' && req.method === 'GET') {
         return send(res, 200, { chunks: service.documentChunks(id) });

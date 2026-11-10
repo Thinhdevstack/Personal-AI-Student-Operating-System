@@ -2,7 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { openStudentDatabase } from './database.mjs';
 import { documentStorage, StudentError, validatePdf } from './storage.mjs';
 import { extractPdf } from '../documents/pdf.mjs';
-import { recognizePdfImage } from '../documents/ocr.mjs';
+import { recognizePdfPageWithMeta } from '../documents/ocr.mjs';
 import { createChunks } from '../documents/chunking.mjs';
 import { createAIProviders, registryForProvider } from '../ai/providers.mjs';
 import { searchCourseMaterials } from '../ai/retrieval.mjs';
@@ -33,7 +33,18 @@ export function createStudentService(dir, options = {}) {
   // A stopped server cannot finish its old in-memory jobs. Keep saved files/indexes and allow retry.
   db.prepare(`UPDATE documents SET status=CASE WHEN EXISTS(SELECT 1 FROM document_chunks c WHERE c.documentId=documents.id) THEN 'ready' ELSE 'failed' END,
     processingError='processingInterrupted' WHERE status='processing'`).run();
-  const publicDocument = ({ storagePath, ...doc }) => ({ ...doc, ...progress.get(doc.id), indexReady: !!db.prepare('SELECT 1 FROM chunk_embeddings e JOIN document_chunks c ON c.id=e.chunkId WHERE c.documentId=? AND e.provider=? AND e.model=? AND e.dimensions=? AND e.modelVersion=? LIMIT 1').get(doc.id, embeddingId, aiProvider.model, aiProvider.dimensions, aiProvider.version || '') });
+  const publicDocument = ({ storagePath, ...doc }) => {
+    const totalChunks = doc.chunkCount ?? db.prepare('SELECT COUNT(*) AS n FROM document_chunks WHERE documentId = ?').get(doc.id)?.n ?? 0;
+    const embeddedChunks = db.prepare('SELECT COUNT(*) AS n FROM chunk_embeddings e JOIN document_chunks c ON c.id=e.chunkId WHERE c.documentId=? AND e.provider=? AND e.model=? AND e.dimensions=? AND e.modelVersion=?').get(doc.id, embeddingId, aiProvider.model, aiProvider.dimensions, aiProvider.version || '')?.n ?? 0;
+    const isIndexReady = totalChunks > 0 && embeddedChunks === totalChunks;
+    return {
+      ...doc,
+      chunkCount: totalChunks,
+      embeddedChunks,
+      ...progress.get(doc.id),
+      indexReady: isIndexReady,
+    };
+  };
   if (options.studentDemo && !aiRegistry.isMock) { db.close(); throw new StudentError('aiMockDisabled'); }
   const memory = createMemoryService({ db });
   const activity = options.activity || createStudentActivity();
@@ -171,7 +182,7 @@ export function createStudentService(dir, options = {}) {
      * @param {string} id Document ID
      * @returns {Promise<object>} The updated document
      */
-    async processDocument(id) {
+    async processDocument(id, options = {}) {
       const doc = document(id);
       writableCourse(doc.courseId);
       if (processing.has(id)) throw new StudentError('busy', 429);
@@ -189,9 +200,20 @@ export function createStudentService(dir, options = {}) {
         writableCourse(doc.courseId);
         progress.set(id, { processingPhase: 'extracting' });
         const filePath = storage.location(id);
+        const forcePages = Array.isArray(options.pages)
+          ? options.pages
+          : Array.isArray(options.forceOcrPages)
+          ? options.forceOcrPages
+          : options.forceOcr && doc.pageCount
+          ? Array.from({ length: doc.pageCount }, (_, i) => i + 1)
+          : [];
+        const ocrFn = options.ocr || (embeddingId === 'ollama' && process.platform === 'win32' ? recognizePdfPageWithMeta : undefined);
+
         // 1. Extract text per page
-        const { pages, pageCount } = await extractPdf(filePath, {
-          ...(embeddingId === 'ollama' && process.platform === 'win32' && { ocr: recognizePdfImage }),
+        const { pages, pageCount, pageDiagnostics = [], coverage = {} } = await extractPdf(filePath, {
+          ocr: ocrFn,
+          forceOcrPages: forcePages,
+          extractorVersion: options.extractorVersion || 'b4-v1',
           onOcr: (page, totalPages) => progress.set(id, { processingPhase: 'ocr', processingPage: page, processingPages: totalPages }),
         });
 
@@ -211,9 +233,28 @@ export function createStudentService(dir, options = {}) {
           throw new StudentError('aiEmbeddingMismatch', 500);
         }
 
-        // 4. Save chunks and embeddings atomically in transaction
+        // 4. Save chunks, embeddings, and per-page records atomically in transaction
         const time = now();
         db.transaction(() => {
+          // Save per-page diagnostics
+          const insertPage = db.prepare(`
+            INSERT OR REPLACE INTO document_pages (documentId, pageNumber, method, status, charCount, warningCode, ocrLanguage, ocrEngine, extractedAt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `);
+          for (const diag of pageDiagnostics) {
+            insertPage.run(
+              id,
+              diag.pageNumber,
+              diag.method,
+              diag.status,
+              diag.charCount,
+              diag.warningCode,
+              diag.ocrLanguage,
+              diag.ocrEngine,
+              time
+            );
+          }
+
           // Keep stable chunk IDs and indexes from other models when the extracted text is unchanged.
           const previous = db.prepare('SELECT * FROM document_chunks WHERE documentId=?').all(id);
           const retained = new Set();
@@ -234,14 +275,14 @@ export function createStudentService(dir, options = {}) {
             if (!old) {
               db.prepare('DELETE FROM document_chunks WHERE documentId=? AND pageNumber=? AND chunkIndex=?').run(id, chunk.pageNumber, chunk.chunkIndex);
               insertChunk.run(
-              chunkId,
-              id,
-              doc.courseId,
-              chunk.pageNumber,
-              chunk.chunkIndex,
-              chunk.content,
-              chunk.tokenCount,
-              time
+                chunkId,
+                id,
+                doc.courseId,
+                chunk.pageNumber,
+                chunk.chunkIndex,
+                chunk.content,
+                chunk.tokenCount,
+                time
               );
             }
 
@@ -260,12 +301,29 @@ export function createStudentService(dir, options = {}) {
           }
           for (const row of previous) if (!retained.has(row.id)) db.prepare('DELETE FROM document_chunks WHERE id=?').run(row.id);
 
-          // Mark document ready
+          // Mark document ready and record coverage
           db.prepare(`
             UPDATE documents
-            SET status = 'ready', pageCount = ?, processingError = NULL, processedAt = ?
+            SET status = 'ready',
+                pageCount = ?,
+                processingError = NULL,
+                processedAt = ?,
+                extractorVersion = ?,
+                coverageStatus = ?,
+                pagesWithText = ?,
+                pagesOcr = ?,
+                pagesWarning = ?
             WHERE id = ?
-          `).run(pageCount, time, id);
+          `).run(
+            pageCount,
+            time,
+            coverage.extractorVersion || 'b4-v1',
+            coverage.coverageStatus || 'full',
+            coverage.pagesWithText ?? pages.length,
+            coverage.pagesOcr ?? 0,
+            coverage.pagesWarning ?? 0,
+            id
+          );
         })();
 
         progress.delete(id);
@@ -280,6 +338,11 @@ export function createStudentService(dir, options = {}) {
         `).run(doc.status === 'ready' ? 'ready' : 'failed', errorCode, id);
         throw err;
       } finally { processing.delete(id); progress.delete(id); release?.(); }
+    },
+
+    documentPages(docId) {
+      document(docId);
+      return db.prepare('SELECT * FROM document_pages WHERE documentId = ? ORDER BY pageNumber').all(docId);
     },
 
     /**

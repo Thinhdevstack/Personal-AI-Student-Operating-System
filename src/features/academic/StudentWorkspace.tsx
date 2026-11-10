@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { FormEvent } from 'react';
 import { createT } from '@/i18n/index.js';
-import type { AcademicSnapshot, Course, Material, SearchResult, Semester } from './types';
+import type { AcademicSnapshot, Course, DocumentPage, Material, SearchResult, Semester } from './types';
 import * as api from './api';
 import CourseChat from '@/features/ai/CourseChat';
 import MemoryWorkspace from '@/features/ai/MemoryWorkspace';
@@ -35,8 +35,15 @@ export default function StudentWorkspace({ lang, studentDemo = false, studentLoc
   const [dragging, setDragging] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ completed: number; total: number; name: string } | null>(null);
   const [uploadFailures, setUploadFailures] = useState<{ name: string; code: string }[]>([]);
-  const uploadLock = useRef(false);
+  const pendingUploads = useRef<File[]>([]);
+  const isUploading = useRef(false);
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const pagesDialogRef = useRef<HTMLDialogElement>(null);
+  const [selectedMaterialForPages, setSelectedMaterialForPages] = useState<Material | null>(null);
+  const [materialPages, setMaterialPages] = useState<DocumentPage[] | null>(null);
+  const [pagesLoading, setPagesLoading] = useState(false);
+  const [selectedPagesForOcr, setSelectedPagesForOcr] = useState<number[]>([]);
+  const [pagesActionError, setPagesActionError] = useState('');
 
   // Native modal dialogs provide keyboard focus containment and restore focus on close.
   useEffect(() => {
@@ -44,6 +51,12 @@ export default function StudentWorkspace({ lang, studentDemo = false, studentLoc
     if (editor && dialog && !dialog.open) dialog.showModal();
     return () => { if (dialog?.open) dialog.close(); };
   }, [editor]);
+
+  useEffect(() => {
+    const dialog = pagesDialogRef.current;
+    if (selectedMaterialForPages && dialog && !dialog.open) dialog.showModal();
+    return () => { if (dialog?.open) dialog.close(); };
+  }, [selectedMaterialForPages]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -121,33 +134,78 @@ export default function StudentWorkspace({ lang, studentDemo = false, studentLoc
     } catch (err) { setError(err instanceof api.AcademicApiError ? err.message : 'network'); }
     finally { setBusy(false); }
   }
-  function uploadFiles(files: File[]) {
-    if (busy || uploadLock.current || !course || course.status !== 'active') return;
-    if (!files.length) return;
-    const target = course.id;
-    uploadLock.current = true;
-    setBusy(true); setError(''); setNotice(''); setUploadFailures([]);
-    void (async () => {
+  async function drainUploadQueue(targetCourseId: string) {
+    if (isUploading.current) return;
+    isUploading.current = true;
+    setBusy(true); setError(''); setNotice('');
+    try {
       const failures: { name: string; code: string }[] = [];
-      // Save sequentially so a batch cannot exceed the server's upload limit.
-      // Processing is queued on the server and does not hold up the next upload.
-      for (const [index, file] of files.entries()) {
-        setUploadProgress({ completed: index, total: files.length, name: file.name });
+      let completed = 0;
+      while (pendingUploads.current.length > 0) {
+        const file = pendingUploads.current.shift()!;
+        const total = completed + pendingUploads.current.length + 1;
+        setUploadProgress({ completed, total, name: file.name });
         try {
           if (!/\.pdf$/i.test(file.name)) throw new api.AcademicApiError('invalidFile');
           if (!file.size || file.size > MAX_PDF_BYTES) throw new api.AcademicApiError('fileTooLarge');
-          const uploaded = await api.upload(target, file);
+          const uploaded = await api.upload(targetCourseId, file);
           setRevision((r) => r + 1);
           await api.processDocument(uploaded.id);
         } catch (err) {
           failures.push({ name: file.name, code: err instanceof api.AcademicApiError ? err.message : 'network' });
           setUploadFailures([...failures]);
         }
+        completed++;
         setRevision((r) => r + 1);
       }
       refreshSnapshot();
       if (!failures.length) setNotice('local.filesSaved');
-    })().finally(() => { uploadLock.current = false; setUploadProgress(null); setBusy(false); });
+    } finally {
+      isUploading.current = false;
+      setUploadProgress(null);
+      setBusy(false);
+    }
+  }
+
+  function uploadFiles(files: File[]) {
+    if (!course || course.status !== 'active') return;
+    if (!files.length) return;
+    pendingUploads.current.push(...files);
+    void drainUploadQueue(course.id);
+  }
+
+  async function openPageDetails(item: Material) {
+    setSelectedMaterialForPages(item);
+    setMaterialPages(null);
+    setSelectedPagesForOcr([]);
+    setPagesActionError('');
+    setPagesLoading(true);
+    try {
+      const res = await api.documentPages(item.id);
+      setMaterialPages(res.pages);
+      const failedOrWarned = res.pages.filter((p) => p.status === 'ocr_failed' || p.warningCode).map((p) => p.pageNumber);
+      setSelectedPagesForOcr(failedOrWarned);
+    } catch (err) {
+      setPagesActionError(err instanceof api.AcademicApiError ? err.message : 'serverError');
+    } finally {
+      setPagesLoading(false);
+    }
+  }
+
+  async function reprocessSelectedPages() {
+    if (!selectedMaterialForPages || !selectedPagesForOcr.length) return;
+    setBusy(true);
+    setPagesActionError('');
+    try {
+      await api.processDocument(selectedMaterialForPages.id, { pages: selectedPagesForOcr, forceOcr: true });
+      setSelectedMaterialForPages(null);
+      setRevision((r) => r + 1);
+      refreshSnapshot();
+    } catch (err) {
+      setPagesActionError(err instanceof api.AcademicApiError ? err.message : 'serverError');
+    } finally {
+      setBusy(false);
+    }
   }
   async function saveEditor(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -189,14 +247,30 @@ export default function StudentWorkspace({ lang, studentDemo = false, studentLoc
           </span>
           {item.status === 'processing' && item.processingPhase === 'indexing' && !!item.totalChunks && <span> · {item.completedChunks || 0}/{item.totalChunks} {t('chunks')}</span>}
           {item.status === 'processing' && item.processingPhase === 'ocr' && <span> · {item.processingPage}/{item.processingPages} {t('pages')}</span>}
-          {item.status === 'ready' && item.indexReady === false && <span className="student-index-hint">{t('local.reindexHint')}</span>}
-          {item.processingError && item.status === 'ready' && <span>{t(`errors.${item.processingError}`)}</span>}
-          {item.status === 'ready' && item.pageCount && ` · ${item.pageCount} ${t('pages')}`}
+          {item.status === 'ready' && (
+            <span className={item.indexReady ? 'student-index-ready' : 'student-index-hint'} style={{ marginLeft: 6 }}>
+              {item.indexReady ? t('local.indexReady') : t('local.indexPending')}
+            </span>
+          )}
+          {item.status === 'ready' && item.coverageStatus && (
+            <span className="student-coverage-badge" style={{ marginLeft: 6 }}>
+              · {t(`local.coverage.${item.coverageStatus}`)}
+            </span>
+          )}
+          {item.status === 'ready' && item.pageCount && ` · ${item.pagesWithText ?? item.pageCount}/${item.pageCount} ${t('pages')}`}
+          {item.status === 'ready' && !!item.pagesOcr && ` · ${item.pagesOcr} OCR`}
+          {item.status === 'ready' && !!item.pagesWarning && <span style={{ color: '#d97706', marginLeft: 4 }}> · {item.pagesWarning} ⚠</span>}
+          {item.processingError && item.status === 'ready' && <span> · {t(`errors.${item.processingError}`)}</span>}
           {item.status === 'ready' && typeof item.chunkCount === 'number' && ` · ${item.chunkCount} ${t('chunks')}`}
           {item.status === 'failed' && item.processingError && ` (${t(`errors.${item.processingError}`) || item.processingError})`}
         </small>
       </div>
       <div className="student-material-actions">
+        {item.pageCount ? (
+          <button type="button" disabled={busy} onClick={() => void openPageDetails(item)}>
+            {t('local.pageDetails')}
+          </button>
+        ) : null}
         {item.status === 'uploaded' && course?.status === 'active' && (
           <button disabled={busy} onClick={() => void run(async () => { await api.processDocument(item.id); })}>
             {t('process')}
@@ -208,7 +282,7 @@ export default function StudentWorkspace({ lang, studentDemo = false, studentLoc
           </button>
         )}
         {item.status === 'ready' && course?.status === 'active' && <button disabled={busy} onClick={() => void run(async () => { await api.processDocument(item.id); })}>{t('reprocess')}</button>}
-        <a href={api.apiUrl(`documents/${item.id}/file`)}>{t('download')}</a>
+        <a href={api.apiUrl(`documents/${item.id}/file`)} download={item.originalFilename}>{t('download')}</a>
       </div>
     </li>)}</ul>;
   }
@@ -263,11 +337,11 @@ export default function StudentWorkspace({ lang, studentDemo = false, studentLoc
           <section className="student-panel">
             {course.status === 'archived' && <p className="student-archive-note">{t('archivedHint')}</p>}
             {tab === 'overview' && <><h2>{course.name}</h2><p>{course.description || t('selectCourse')}</p><p>{t('semester')}: {semester.name} · {semester.academicYear}</p><p>{t(`status.${course.status}`)}</p><button onClick={() => setTab('materials')}>{t('materials')} →</button></>}
-            {tab === 'materials' && <><div className="student-section-heading"><h2>{t('materials')}</h2>{course.status === 'active' && <label className={`student-upload ${busy ? 'is-disabled' : ''}`}>{t('upload')}<input aria-label={t('upload')} type="file" accept=".pdf,application/pdf" multiple disabled={busy} onChange={(event) => {
+            {tab === 'materials' && <><div className="student-section-heading"><h2>{t('materials')}</h2>{course.status === 'active' && <label className="student-upload">{t('upload')}<input aria-label={t('upload')} type="file" accept=".pdf,application/pdf" multiple onChange={(event) => {
               const files = Array.from(event.target.files || []); event.target.value = '';
               if (files.length) uploadFiles(files);
             }} /></label>}</div><p>{t('pdfHint')}</p>
-              {course.status === 'active' && <div className={`student-dropzone${dragging ? ' is-dragging' : ''}`} onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = busy ? 'none' : 'copy'; }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }} onDrop={(event) => { event.preventDefault(); setDragging(false); uploadFiles(Array.from(event.dataTransfer.files)); }} aria-busy={busy}>{t(busy ? 'local.uploading' : 'local.dropPdf')}</div>}
+              {course.status === 'active' && <div className={`student-dropzone${dragging ? ' is-dragging' : ''}`} onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = 'copy'; }} onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }} onDrop={(event) => { event.preventDefault(); setDragging(false); uploadFiles(Array.from(event.dataTransfer.files)); }}>{t(uploadProgress ? 'local.uploading' : 'local.dropPdf')}</div>}
               {uploadProgress && <p role="status">{t('local.uploading')} {uploadProgress.completed}/{uploadProgress.total} · {uploadProgress.name}</p>}
               {!!uploadFailures.length && <ul className="student-error" role="alert">{uploadFailures.map((failure, index) => <li key={index}>{failure.name}: {t(`errors.${failure.code}`)}</li>)}</ul>}
               {courseMaterials === null ? <p>{t('loading')}</p> : courseMaterials.length ? materialList(courseMaterials) : <div className="student-empty">{t('emptyMaterials')}</div>}
@@ -335,6 +409,92 @@ export default function StudentWorkspace({ lang, studentDemo = false, studentLoc
         {editor.action === 'archive' && <p>{t('archiveConfirm')}</p>}{editor.action === 'delete' && <p>{t('deleteConfirm')}</p>}
         <div className="student-actions"><button type="button" disabled={busy} onClick={() => { setEditor(null); setError(''); }}>{t('cancel')}</button><button className="student-primary" disabled={busy} type="submit">{busy ? t('working') : t(['archive', 'delete'].includes(editor.action) ? 'confirm' : 'save')}</button></div>
       </form>
+    </dialog>}
+    {selectedMaterialForPages && <dialog ref={pagesDialogRef} className="student-modal" aria-labelledby="student-pages-title" onCancel={() => { if (!busy) { setSelectedMaterialForPages(null); setPagesActionError(''); } }}>
+      <div>
+        <h2 id="student-pages-title">{t('local.pageDetailsTitle')}: {selectedMaterialForPages.originalFilename}</h2>
+        <p style={{ fontSize: '13px', color: '#666', margin: '4px 0 12px' }}>
+          {selectedMaterialForPages.pageCount} {t('pages')} · {selectedMaterialForPages.pagesWithText ?? 0} {t('pages')} có chữ · {selectedMaterialForPages.pagesOcr ?? 0} trang OCR · {selectedMaterialForPages.pagesWarning ?? 0} cảnh báo
+          {selectedMaterialForPages.extractorVersion ? ` · Extractor: ${selectedMaterialForPages.extractorVersion}` : ''}
+        </p>
+        {pagesActionError && <p className="student-error" role="alert">{t(`errors.${pagesActionError}`) || pagesActionError}</p>}
+        {pagesLoading ? (
+          <p>{t('loading')}</p>
+        ) : materialPages && materialPages.length > 0 ? (
+          <div style={{ maxHeight: '300px', overflowY: 'auto', border: '1px solid #ddd', borderRadius: '4px', margin: '12px 0' }}>
+            <table style={{ width: '100%', fontSize: '13px', borderCollapse: 'collapse', textAlign: 'left' }}>
+              <thead>
+                <tr style={{ background: '#f5f5f5', borderBottom: '1px solid #ddd' }}>
+                  <th style={{ padding: '6px 8px' }}>
+                    <input
+                      type="checkbox"
+                      aria-label={t('local.selectAll')}
+                      checked={selectedPagesForOcr.length === materialPages.length && materialPages.length > 0}
+                      onChange={(e) => {
+                        if (e.target.checked) setSelectedPagesForOcr(materialPages.map((p) => p.pageNumber));
+                        else setSelectedPagesForOcr([]);
+                      }}
+                    />
+                  </th>
+                  <th style={{ padding: '6px 8px' }}>{t('local.pageNumber')}</th>
+                  <th style={{ padding: '6px 8px' }}>{t('local.method')}</th>
+                  <th style={{ padding: '6px 8px' }}>{t('local.charCount')}</th>
+                  <th style={{ padding: '6px 8px' }}>{t('local.warning')}</th>
+                </tr>
+              </thead>
+              <tbody>
+                {materialPages.map((page) => (
+                  <tr key={page.pageNumber} style={{ borderBottom: '1px solid #eee' }}>
+                    <td style={{ padding: '6px 8px' }}>
+                      <input
+                        type="checkbox"
+                        aria-label={`${t('local.pageNumber')} ${page.pageNumber}`}
+                        checked={selectedPagesForOcr.includes(page.pageNumber)}
+                        onChange={(e) => {
+                          if (e.target.checked) setSelectedPagesForOcr((prev) => [...prev, page.pageNumber]);
+                          else setSelectedPagesForOcr((prev) => prev.filter((p) => p !== page.pageNumber));
+                        }}
+                      />
+                    </td>
+                    <td style={{ padding: '6px 8px' }}>{page.pageNumber}</td>
+                    <td style={{ padding: '6px 8px' }}>
+                      {page.method === 'native' ? t('local.methodNative') : page.method === 'ocr' ? t('local.methodOcr') : page.method === 'combined' ? t('local.methodCombined') : t('local.methodNone')}
+                      {page.ocrLanguage ? ` (${page.ocrLanguage})` : ''}
+                    </td>
+                    <td style={{ padding: '6px 8px' }}>{page.charCount}</td>
+                    <td style={{ padding: '6px 8px' }}>
+                      {page.warningCode ? (
+                        <span style={{ color: '#d97706', fontWeight: 'bold' }}>
+                          {t(`errors.${page.warningCode}`) || page.warningCode}
+                        </span>
+                      ) : '—'}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p>{t('local.emptyText')}</p>
+        )}
+        <div className="student-actions" style={{ marginTop: '16px', display: 'flex', justifyContent: 'space-between' }}>
+          <button
+            type="button"
+            className="student-primary"
+            disabled={busy || selectedPagesForOcr.length === 0}
+            onClick={() => void reprocessSelectedPages()}
+          >
+            {t('local.selectiveOcr')} ({selectedPagesForOcr.length})
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => { setSelectedMaterialForPages(null); setPagesActionError(''); }}
+          >
+            {t('local.close')}
+          </button>
+        </div>
+      </div>
     </dialog>}
   </div>;
 }
