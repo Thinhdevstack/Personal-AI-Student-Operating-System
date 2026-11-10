@@ -393,7 +393,7 @@ export default function StudentWorkspace({ lang, studentDemo = false, studentLoc
                 )}
               </div>
             </>}
-            {tab === 'chat' && <CourseChat key={course.id} courseId={course.id} lang={lang} hasReadyMaterials={!!courseMaterials?.some((item) => item.status === 'ready')} onMemoryChange={refreshSnapshot} />}
+            {tab === 'chat' && <CourseChat key={course.id} courseId={course.id} lang={lang} hasReadyMaterials={!!courseMaterials?.some((item) => item.status === 'ready')} materials={courseMaterials || []} onMemoryChange={refreshSnapshot} />}
             {tab === 'memory' && <MemoryWorkspace key={course.id} lang={lang} target={{ scope: 'course', courseId: course.id }} onChange={refreshSnapshot} />}
             {tab === 'progress' && <p>{t('progressPending')}</p>}
           </section>

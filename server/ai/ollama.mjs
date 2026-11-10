@@ -16,7 +16,8 @@ export function createOllama(options = {}) {
   const fetcher = options.fetch || fetch;
   const chatModel = options.chatModel || process.env.OLLAMA_CHAT_MODEL || 'qwen3:4b';
   const embedModel = options.embeddingModel || process.env.OLLAMA_EMBEDDING_MODEL || 'embeddinggemma:latest';
-  if ([chatModel, embedModel].some((model) => !/^[a-zA-Z0-9_./:-]{1,120}$/.test(model) || /(?:cloud|\/)/i.test(model))) throw new StudentError('ollamaConfig');
+  const defaultCloudModel = options.cloudModel || process.env.OLLAMA_CLOUD_CHAT_MODEL || 'glm-5.3-flash:cloud';
+  if ([chatModel, embedModel].some((model) => !/^[a-zA-Z0-9_./:-]{1,120}$/.test(model) || (model.includes('/') && !model.startsWith('ollama/')))) throw new StudentError('ollamaConfig');
   const dimensions = integer(options.dimensions ?? process.env.OLLAMA_EMBEDDING_DIMENSIONS, 768, 1, 4096);
   const timeoutMs = integer(options.timeoutMs ?? process.env.OLLAMA_TIMEOUT_MS, 180000, 10, 240000);
   const numCtx = integer(process.env.OLLAMA_CONTEXT_SIZE, 8192, 2048, 16384);
@@ -45,8 +46,11 @@ export function createOllama(options = {}) {
       try { data = JSON.parse(Buffer.concat(chunks).toString('utf8')); }
       catch { throw new StudentError('aiInvalidResponse', 502); }
       if (!response.ok || data.error) {
-        if (response.status === 404) throw new StudentError('ollamaModelMissing', 409);
-        if (/memory|out of memory|allocat/i.test(String(data.error))) throw new StudentError('ollamaMemory', 503);
+        const errMsg = String(data.error || '');
+        if (response.status === 401 || /sign ?in|unauthor/i.test(errMsg)) throw new StudentError('ollamaAuthRequired', 401);
+        if (response.status === 402 || /credits?|plans?|subscri|quota|rate limit/i.test(errMsg)) throw new StudentError('ollamaRateLimit', 402);
+        if (response.status === 404 || /model .* not found/i.test(errMsg)) throw new StudentError('ollamaModelMissing', 404);
+        if (/memory|out of memory|allocat/i.test(errMsg)) throw new StudentError('ollamaMemory', 503);
         throw new StudentError('ollamaUnavailable', 503);
       }
       return data;
@@ -158,8 +162,65 @@ export function createOllama(options = {}) {
       }, signal);
     },
   };
+  const cloudChat = {
+    providerId: 'ollama-cloud',
+    chatModel: defaultCloudModel,
+    isMock: false,
+    contextChars: 32000,
+    async chat(context, { signal } = {}) {
+      const targetModel = context.model || defaultCloudModel;
+      if (!/^[a-zA-Z0-9_.:-]{1,120}$/.test(targetModel)) throw new StudentError('ollamaConfig');
+      return exclusive(async () => {
+        const structuredParts = context.mode === 'expanded';
+        const schema = structuredParts ? {
+          ...TUTOR_FORMAT.schema,
+          properties: { ...TUTOR_FORMAT.schema.properties, additionalKnowledge: { type: 'string' } },
+          required: [...TUTOR_FORMAT.schema.required, 'additionalKnowledge'],
+        } : TUTOR_FORMAT.schema;
+        const partsInstruction = structuredParts
+          ? '\nEXPANDED SCHEMA: Put statements from excerpts in "answer". Put your own explanation, example, and general knowledge in "additionalKnowledge". If excerpts lack info but you know the concept, use basis="general", answer="", sourceIds=[] and explain in "additionalKnowledge". If you also cannot answer reliably, use basis="insufficient", explain what is missing and advise how to proceed in "answer", and leave "additionalKnowledge" empty. The UI adds section headers automatically.'
+          : '\nDOCUMENT MODE: Answer directly using excerpts. If formulas or rules apply, compute step-by-step. Do not invent facts outside excerpts.';
+        const data = await request('/api/chat', {
+          model: targetModel, stream: false, think: false, keep_alive: '5m',
+          messages: [{ role: 'system', content: context.instructions + partsInstruction }, ...context.input],
+          format: schema, options: { temperature: 0.2 },
+        }, signal);
+        if (!data.done || data.done_reason === 'length') throw new StudentError('aiIncomplete', 502);
+        if (typeof data.message?.content !== 'string' || data.message.content.length > 200000) throw new StudentError('aiInvalidResponse', 502);
+        let answer;
+        try { answer = JSON.parse(data.message.content); } catch { throw new StudentError('aiInvalidResponse', 502); }
+        if (structuredParts) {
+          if (typeof answer.additionalKnowledge !== 'string' || typeof answer.answer !== 'string' || answer.additionalKnowledge.length > 16000) throw new StudentError('aiInvalidResponse', 502);
+          if (answer.basis === 'materials' && !answer.answer.trim()) throw new StudentError('aiInvalidResponse', 502);
+          const fromFile = context.lang === 'vi' ? 'Theo tài liệu:' : 'From your materials:';
+          const fromModel = context.lang === 'vi' ? 'Bổ sung từ kiến thức mô hình (chưa xác minh):' : 'Additional model knowledge (unverified):';
+          const parts = [];
+          if (answer.basis === 'materials' && answer.answer.trim()) parts.push(fromFile + '\n' + answer.answer.trim());
+          else if (answer.basis === 'insufficient' && answer.answer.trim()) parts.push(answer.answer.trim());
+          const extra = answer.basis === 'insufficient' ? '' : [answer.basis === 'general' ? answer.answer.trim() : '', answer.additionalKnowledge.trim()].filter(Boolean).join('\n');
+          if (extra) parts.push(fromModel + '\n' + extra);
+          answer = { ...answer, answer: parts.join('\n\n') };
+        }
+        const totalNs = Number(data.total_duration || 0);
+        const promptNs = Number(data.prompt_eval_duration || 0);
+        const evalNs = Number(data.eval_duration || 0);
+        const promptCount = Number(data.prompt_eval_count || 0);
+        const evalCount = Number(data.eval_count || 0);
+        const metrics = {
+          totalMs: Math.round(totalNs / 1e6),
+          promptMs: Math.round(promptNs / 1e6),
+          evalMs: Math.round(evalNs / 1e6),
+          promptTokens: promptCount,
+          evalTokens: evalCount,
+          evalTokensPerSec: evalNs > 0 ? Number(((evalCount / evalNs) * 1e9).toFixed(1)) : 0,
+          promptTokensPerSec: promptNs > 0 ? Number(((promptCount / promptNs) * 1e9).toFixed(1)) : 0,
+        };
+        return { ...answer, model: targetModel, isMock: false, metrics };
+      }, signal);
+    },
+  };
   return {
-    embedding, chat,
+    embedding, chat, cloudChat,
     async status() {
       try {
         const data = await request('/api/tags', null, undefined, 3000);

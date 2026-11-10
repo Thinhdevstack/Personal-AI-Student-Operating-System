@@ -2,7 +2,20 @@ import { request } from '@/features/academic/api';
 import type { ChatHistory, ChatProviderId, AISettings, LocalAIStatus } from './types';
 import type { MemoryTarget, SavedMemory, MemorySource } from './types';
 
-export interface ChatRequest { courseId: string; message: string; requestId: string; language: 'en' | 'vi'; conversationId?: string; provider?: ChatProviderId; mode?: 'materials' | 'expanded'; webSearch?: boolean }
+export interface ChatRequest {
+  courseId: string;
+  message: string;
+  requestId: string;
+  language: 'en' | 'vi';
+  conversationId?: string;
+  provider?: ChatProviderId;
+  mode?: 'materials' | 'expanded';
+  webSearch?: boolean;
+  model?: string;
+  documentId?: string;
+  pageNumber?: number;
+  sourceTarget?: { documentId?: string; pageNumber?: number };
+}
 export const localAIStatus = (signal?: AbortSignal) => request<LocalAIStatus>('ai/local', { signal });
 export const cancelChat = (courseId: string, requestId: string) => request<{ cancelled: boolean }>(`courses/${courseId}/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requestId }) });
 export const aiSettings = (signal?: AbortSignal) => request<AISettings>('ai', { signal });

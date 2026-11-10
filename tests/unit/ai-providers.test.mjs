@@ -122,7 +122,7 @@ test('registry separates chat and embedding configuration; capability metadata c
 test('offline mode explicitly simulates all three selectable providers and never enables itself for a missing key', (t) => {
   environment(t, {});
   assert.equal(createAIProviders().settings().isMock, false);
-  assert.ok(createAIProviders().settings().chatProviders.filter((entry) => entry.id !== 'ollama').every((entry) => !entry.configured && !entry.isMock));
+  assert.ok(createAIProviders().settings().chatProviders.filter((entry) => !entry.id.startsWith('ollama')).every((entry) => !entry.configured && !entry.isMock));
   assert.equal(createAIProviders().settings().chatProviders.find((entry) => entry.id === 'ollama').isMock, false);
   process.env.AI_OFFLINE_MODE = '1';
   const registry = createAIProviders();

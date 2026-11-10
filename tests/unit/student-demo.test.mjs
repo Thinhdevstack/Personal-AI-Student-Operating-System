@@ -99,7 +99,7 @@ test('normal mode with empty keys never silently enables simulation', (t) => {
   process.env.AI_OFFLINE_MODE = '0';
   const registry = createAIProviders();
   assert.equal(registry.isMock, false);
-  assert.ok(registry.settings().chatProviders.filter((provider) => provider.id !== 'ollama').every((provider) => !provider.configured && !provider.isMock));
+  assert.ok(registry.settings().chatProviders.filter((provider) => !provider.id.startsWith('ollama')).every((provider) => !provider.configured && !provider.isMock));
   assert.equal(registry.settings().chatProviders.find((provider) => provider.id === 'ollama').isMock, false);
   assert.throws(() => createStudentService(path.join(f.root, 'bad'), { aiRegistry: registry, studentDemo: true }), /aiMockDisabled/);
 });
