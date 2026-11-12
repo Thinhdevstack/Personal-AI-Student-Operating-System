@@ -51,6 +51,7 @@ export function createOllama(options = {}) {
         if (response.status === 402 || /credits?|plans?|subscri|quota|rate limit/i.test(errMsg)) throw new StudentError('ollamaRateLimit', 402);
         if (response.status === 404 || /model .* not found/i.test(errMsg)) throw new StudentError('ollamaModelMissing', 404);
         if (/memory|out of memory|allocat/i.test(errMsg)) throw new StudentError('ollamaMemory', 503);
+        if (response.status === 400 || /schema|format|unknown field|invalid/i.test(errMsg)) throw new StudentError('ollamaConfig', 400);
         throw new StudentError('ollamaUnavailable', 503);
       }
       return data;
@@ -162,11 +163,35 @@ export function createOllama(options = {}) {
       }, signal);
     },
   };
+  let lastCloudVerification = null;
   const cloudChat = {
     providerId: 'ollama-cloud',
     chatModel: defaultCloudModel,
     isMock: false,
     contextChars: 32000,
+    async verify(model, { signal } = {}) {
+      const targetModel = model || defaultCloudModel;
+      if (!/^[a-zA-Z0-9_.:-]{1,120}$/.test(targetModel)) throw new StudentError('ollamaConfig');
+      try {
+        const pingDeadline = AbortSignal.timeout(15000);
+        const combined = signal ? AbortSignal.any([signal, pingDeadline]) : pingDeadline;
+        await request('/api/chat', {
+          model: targetModel, stream: false,
+          messages: [{ role: 'user', content: 'Say OK' }],
+          options: { temperature: 0.1, num_predict: 4 },
+        }, combined, 15000);
+        lastCloudVerification = { ok: true, state: 'connected', model: targetModel, verifiedAt: Date.now() };
+        return lastCloudVerification;
+      } catch (err) {
+        const state = err.code === 'ollamaAuthRequired' ? 'auth_required'
+          : err.code === 'ollamaRateLimit' ? 'rate_limited'
+          : err.code === 'ollamaModelMissing' ? 'model_missing'
+          : err.code === 'ollamaUnavailable' ? 'disconnected'
+          : 'error';
+        lastCloudVerification = { ok: false, state, error: err.code || 'aiUnavailable', model: targetModel, verifiedAt: Date.now() };
+        return lastCloudVerification;
+      }
+    },
     async chat(context, { signal } = {}) {
       const targetModel = context.model || defaultCloudModel;
       if (!/^[a-zA-Z0-9_.:-]{1,120}$/.test(targetModel)) throw new StudentError('ollamaConfig');
@@ -180,15 +205,31 @@ export function createOllama(options = {}) {
         const partsInstruction = structuredParts
           ? '\nEXPANDED SCHEMA: Put statements from excerpts in "answer". Put your own explanation, example, and general knowledge in "additionalKnowledge". If excerpts lack info but you know the concept, use basis="general", answer="", sourceIds=[] and explain in "additionalKnowledge". If you also cannot answer reliably, use basis="insufficient", explain what is missing and advise how to proceed in "answer", and leave "additionalKnowledge" empty. The UI adds section headers automatically.'
           : '\nDOCUMENT MODE: Answer directly using excerpts. If formulas or rules apply, compute step-by-step. Do not invent facts outside excerpts.';
-        const data = await request('/api/chat', {
-          model: targetModel, stream: false, think: false, keep_alive: '5m',
-          messages: [{ role: 'system', content: context.instructions + partsInstruction }, ...context.input],
-          format: schema, options: { temperature: 0.2 },
-        }, signal);
+        let data;
+        try {
+          data = await request('/api/chat', {
+            model: targetModel, stream: false, keep_alive: '5m',
+            messages: [{ role: 'system', content: context.instructions + partsInstruction }, ...context.input],
+            format: schema, options: { temperature: 0.2 },
+          }, signal);
+        } catch (err) {
+          if (err.status === 400 || err.code === 'ollamaConfig') {
+            data = await request('/api/chat', {
+              model: targetModel, stream: false, keep_alive: '5m',
+              messages: [{ role: 'system', content: context.instructions + partsInstruction }, ...context.input],
+              format: 'json', options: { temperature: 0.2 },
+            }, signal);
+          } else {
+            throw err;
+          }
+        }
         if (!data.done || data.done_reason === 'length') throw new StudentError('aiIncomplete', 502);
         if (typeof data.message?.content !== 'string' || data.message.content.length > 200000) throw new StudentError('aiInvalidResponse', 502);
+        let content = data.message.content.trim();
+        const fenceMatch = content.match(/```(?:json)?\s*([\s\S]*?)\s*```/i);
+        if (fenceMatch) content = fenceMatch[1].trim();
         let answer;
-        try { answer = JSON.parse(data.message.content); } catch { throw new StudentError('aiInvalidResponse', 502); }
+        try { answer = JSON.parse(content); } catch { throw new StudentError('aiInvalidResponse', 502); }
         if (structuredParts) {
           if (typeof answer.additionalKnowledge !== 'string' || typeof answer.answer !== 'string' || answer.additionalKnowledge.length > 16000) throw new StudentError('aiInvalidResponse', 502);
           if (answer.basis === 'materials' && !answer.answer.trim()) throw new StudentError('aiInvalidResponse', 502);
@@ -226,8 +267,29 @@ export function createOllama(options = {}) {
         const data = await request('/api/tags', null, undefined, 3000);
         const models = (Array.isArray(data.models) ? data.models : []).slice(0, 100).map((m) => ({ name: String(m.name || '').slice(0, 120), size: Number(m.size) || 0 }));
         const has = (name) => models.some((m) => m.name === name || m.name === name + ':latest');
-        return { connected: true, chatReady: has(chatModel), embeddingReady: has(embedModel), chatModel, embeddingModel: embedModel, busy, models };
-      } catch (error) { return { connected: false, chatReady: false, embeddingReady: false, chatModel, embeddingModel: embedModel, busy, models: [], error: error.code || 'ollamaUnavailable' }; }
+        return {
+          connected: true,
+          chatReady: has(chatModel),
+          embeddingReady: has(embedModel),
+          chatModel,
+          embeddingModel: embedModel,
+          busy,
+          models,
+          cloudStatus: lastCloudVerification || { state: 'unverified', model: defaultCloudModel },
+        };
+      } catch (error) {
+        return {
+          connected: false,
+          chatReady: false,
+          embeddingReady: false,
+          chatModel,
+          embeddingModel: embedModel,
+          busy,
+          models: [],
+          cloudStatus: { state: 'disconnected', model: defaultCloudModel, error: error.code || 'ollamaUnavailable' },
+          error: error.code || 'ollamaUnavailable',
+        };
+      }
     },
   };
 }

@@ -4,11 +4,13 @@ import { useEffect, useRef, useState } from 'react';
 import { createT } from '@/i18n/index.js';
 import { AcademicApiError, apiUrl } from '@/features/academic/api';
 import type { Material } from '@/features/academic/types';
-import { chatHistory, sendChat, aiSettings, cancelChat } from './api';
+import { chatHistory, sendChat, aiSettings, cancelChat, verifyAIProvider } from './api';
 import type { ChatRequest } from './api';
 import type { ChatHistory, ChatTurn, ChatMessage, ChatProviderId, AISettings } from './types';
 import { MemoryEditor } from './MemoryWorkspace';
 import { LocalStatusView, useLocalStatus } from './LocalAIStatus';
+
+type CloudState = 'not_configured' | 'unverified' | 'verifying' | 'connected' | 'auth_required' | 'rate_limited' | 'model_missing' | 'disconnected' | 'error';
 
 export default function CourseChat({
   courseId,
@@ -37,16 +39,35 @@ export default function CourseChat({
   const [provider, setProvider] = useState<ChatProviderId>('openai');
   const [mode, setMode] = useState<'materials' | 'expanded'>('materials');
   const [cloudModel, setCloudModel] = useState<string>('glm-5.3-flash:cloud');
+  const [localCloudOverride, setLocalCloudOverride] = useState<CloudState | null>(null);
   const [targetDocId, setTargetDocId] = useState<string>('');
   const currentAttempt = useRef<ChatRequest | null>(null);
   const isOllamaFamily = provider === 'ollama' || provider === 'ollama-cloud';
   const localStatus = useLocalStatus(isOllamaFamily, reload);
+  const cloudState: CloudState = localCloudOverride || localStatus?.cloudStatus?.state || 'unverified';
   const inFlight = useRef(false);
   const alive = useRef(true);
   const requestController = useRef<AbortController | null>(null);
   const recoveryAttempts = useRef(0);
   const bottom = useRef<HTMLDivElement>(null);
   const pending = history?.turns.some((turn) => turn.status === 'pending');
+
+  async function handleVerifyCloud() {
+    setLocalCloudOverride('verifying');
+    try {
+      const res = await verifyAIProvider({ provider: 'ollama-cloud', model: cloudModel });
+      const nextState: CloudState = (res.state as CloudState) || (res.ok ? 'connected' : 'error');
+      setLocalCloudOverride(nextState);
+      if (!res.ok && res.error) {
+        setError(res.error);
+      } else {
+        setError('');
+      }
+    } catch {
+      setLocalCloudOverride('error');
+      setError('ollamaUnavailable');
+    }
+  }
 
   useEffect(() => {
     alive.current = true;
@@ -97,6 +118,30 @@ export default function CourseChat({
     currentAttempt.current = attempt;
     const controller = new AbortController(); requestController.current = controller;
 
+    // For Ollama Cloud, perform minimal non-academic verification ping before sending student documents if unverified
+    const chosenProvider = attempt.provider || provider;
+    if (chosenProvider === 'ollama-cloud' && !cloudVerified) {
+      setLocalCloudOverride('verifying');
+      try {
+        const res = await verifyAIProvider({ provider: 'ollama-cloud', model: attempt.model || cloudModel }, controller.signal);
+        const ok = res.ok;
+        const nextState: CloudState = (res.state as CloudState) || (ok ? 'connected' : 'error');
+        setLocalCloudOverride(nextState);
+        if (!ok) {
+          setError(res.error || 'aiUnavailable');
+          inFlight.current = false;
+          setWorking(false);
+          return;
+        }
+      } catch {
+        setLocalCloudOverride('error');
+        setError('ollamaUnavailable');
+        inFlight.current = false;
+        setWorking(false);
+        return;
+      }
+    }
+
     // Optimistically render pending turn immediately
     const optimisticTurn: ChatTurn = {
       id: attempt.requestId,
@@ -135,17 +180,41 @@ export default function CourseChat({
       if (alive.current) { setHistory(result); setUncertain(null); setMessage(''); }
     } catch (err) {
       if (alive.current) {
-        setError(controller.signal.aborted ? 'chatCancelled' : err instanceof AcademicApiError ? err.message : 'network');
+        const errorCode = controller.signal.aborted ? 'chatCancelled' : err instanceof AcademicApiError ? err.message : 'network';
+        setError(errorCode);
         recoveryAttempts.current = 5;
         setUncertain(attempt);
         try {
           const recovered = await chatHistory(courseId, AbortSignal.timeout(5000));
           if (alive.current) {
-            setHistory(recovered);
             const saved = recovered.turns.find((turn) => turn.requestId === attempt.requestId);
-            if (saved?.status === 'completed') { setUncertain(null); setError(''); }
+            if (saved?.status === 'completed') {
+              setHistory(recovered);
+              setUncertain(null);
+              setError('');
+            } else if (saved) {
+              setHistory(recovered);
+            } else {
+              // Server did not record turn yet (e.g. network failed before reaching server).
+              // Retain optimistic turn as failed so the user never loses their question and can retry!
+              const failedTurn: ChatTurn = {
+                ...optimisticTurn,
+                status: 'failed',
+                errorCode,
+              };
+              setHistory({
+                ...recovered,
+                turns: [...recovered.turns.filter((t) => t.requestId !== attempt.requestId), failedTurn],
+              });
+            }
           }
-        } catch { /* Retry retains attempt */ }
+        } catch {
+          // If recovering history itself failed, also preserve optimistic turn as failed
+          setHistory((prev) => (prev ? {
+            ...prev,
+            turns: prev.turns.map((t) => t.requestId === attempt.requestId ? { ...t, status: 'failed', errorCode } : t),
+          } : prev));
+        }
       }
     } finally {
       inFlight.current = false;
@@ -196,10 +265,11 @@ export default function CourseChat({
   }
   const unresolved = uncertain && !history?.turns.some((turn) => turn.requestId === uncertain.requestId);
   const selected = settings?.chatProviders.find((entry) => entry.id === provider);
+  const cloudVerified = cloudState === 'connected';
   const ready = !!selected?.configured &&
     (mode === 'expanded' && !hasReadyMaterials || !!settings?.embedding.configured) &&
     (provider !== 'ollama' || (!!localStatus?.connected && !!localStatus.chatReady && (!hasReadyMaterials || !!localStatus.embeddingReady))) &&
-    (provider !== 'ollama-cloud' || (!!localStatus?.connected && (!hasReadyMaterials || !!localStatus.embeddingReady)));
+    (provider !== 'ollama-cloud' || (!!localStatus?.connected && cloudVerified && (!hasReadyMaterials || !!localStatus.embeddingReady)));
   const phase = history?.turns.find((turn) => turn.status === 'pending')?.phase;
 
   async function stop() {
@@ -244,7 +314,17 @@ export default function CourseChat({
         </>
       )}
       {selected && <small>{provider === 'ollama-cloud' ? cloudModel : selected.model} · {t('providers.embedding')}: {settings?.embedding.model}</small>}
-      {isOllamaFamily && <LocalStatusView lang={lang} status={localStatus} refresh={() => setReload((r) => r + 1)} />}
+      {isOllamaFamily && (
+        <LocalStatusView
+          lang={lang}
+          status={localStatus}
+          provider={provider}
+          cloudModel={cloudModel}
+          refresh={() => setReload((r) => r + 1)}
+          onVerifyCloud={handleVerifyCloud}
+          verifyingCloud={cloudState === 'verifying'}
+        />
+      )}
       {settings && !isOllamaFamily && !ready && <p className="student-chat-hint">{t(!selected?.configured ? 'providers.missingKey' : 'providers.missingEmbeddingKey')}</p>}
       <small>{t(settings?.isMock ? 'demo.contextHint' : provider === 'ollama' && settings?.embedding.provider === 'ollama' ? 'local.contextHint' : provider === 'ollama-cloud' ? 'local.cloudContextHint' : 'providers.contextHint')}</small>
       <label htmlFor={`chat-mode-${courseId}`}>{t('local.mode')}</label>

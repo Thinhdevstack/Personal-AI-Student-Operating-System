@@ -1,132 +1,94 @@
-# B5 — Tích hợp Ollama Cloud và Hoàn thiện Trải nghiệm Hỏi đáp Theo Trang / Tài liệu
+# B5 — Tối ưu và Hoàn thiện Hỏi đáp Học tập & Tích hợp Ollama Cloud (Theo lộ trình P0)
 
-## 1. Tổng quan triển khai
+## 1. Mục tiêu và Kết quả theo Lộ trình P0
 
-Giai đoạn B5 tập trung hoàn thiện trải nghiệm hỏi đáp học tập (Course Chat) với hai trọng tâm:
-1. **Tích hợp Ollama Cloud thông qua dịch vụ Ollama local**:
-   - Sử dụng tiến trình nền Ollama đang chạy trên máy (`http://127.0.0.1:11434`) để ủy quyền kết nối tới các model Ollama Cloud (tag `:cloud`, ví dụ `glm-5.3-flash:cloud`, `qwen2.5:cloud`, `deepseek-r1:cloud`, `llama3.3:cloud`).
-   - Tái sử dụng cơ chế xác thực từ lệnh `ollama signin` của người dùng; server không can thiệp, không trích xuất và không lưu trữ token người dùng.
-   - Không yêu cầu `OLLAMA_API_KEY` riêng cho đường kết nối này.
-   - Thêm nhà cung cấp riêng `ollama-cloud` (Ollama · AI Cloud) trên giao diện tách biệt với `ollama` (Ollama · AI local).
-   - Tách biệt embedding PDF trên máy (`embeddinggemma:latest` hoặc model local/cloud hiện tại); không reindex dữ liệu khi chuyển sang model chat cloud.
-2. **Hỗ trợ hỏi đáp trúng tài liệu và số trang cụ thể (Targeted Q&A)**:
-   - Cho phép người học hỏi tự nhiên (ví dụ: *"giải thích chương 1 trang 5"*, *"slide 2"*, *"trang 37"*) hoặc chọn tài liệu cụ thể trên giao diện.
-   - Engine xác định tài liệu & số trang (`server/ai/targeting.mjs`) kiểm tra chặt chẽ số trang trong tài liệu (`pageCount`), chẩn đoán trang từ bảng `document_pages` (trang trống, lỗi OCR).
-   - Khi vị trí được chỉ định không hợp lệ (vượt quá số trang, trang trống, OCR lỗi) hoặc tài liệu mơ hồ, hệ thống trả lời trực tiếp với `basis: 'insufficient'` kèm thông tin chẩn đoán trung thực, tuyệt đối không suy diễn / hallucination.
-   - Khi hợp lệ, các chunk của trang mục tiêu được ưu tiên đặt đầu ngữ cảnh để model bám sát căn cứ.
-3. **Cải thiện trải nghiệm Chat UX**:
-   - Xóa sạch ô nhập câu hỏi ngay khi bấm gửi.
-   - Hiển thị ngay lượt chat tạm thời (optimistic turn) ở trạng thái `pending`.
-   - Khóa gửi tin nhắn trùng lặp trong khi request đang in-flight.
-   - Hiển thị nút "Dừng trả lời" (Stop) để hủy request đang xử lý.
-   - Hiển thị badge định vị tài liệu và số trang mục tiêu trực quan trên tin nhắn người dùng.
-   - Chuyển môn học cô lập hoàn toàn ngữ cảnh chat, tài liệu và trạng thái giữa các môn.
+| Thứ tự | Hạng mục | Điều kiện hoàn thành | Trạng thái thực tế |
+|---|---|---|---|
+| **P0.1** | **Sửa trạng thái provider** | Tách rõ: chưa cấu hình (`not_configured`), chưa kiểm tra (`unverified`), đã kết nối (`connected`), cần đăng nhập (`auth_required`), hết hạn mức (`rate_limited`), mất kết nối (`disconnected`). Không báo "Sẵn sàng" chỉ vì provider có trong danh sách. | **ĐÃ HOÀN THÀNH** |
+| **P0.2** | **Hoàn thiện Ollama Cloud** | Xác minh tên model động, kiểm tra đăng nhập bằng test ping không chứa dữ liệu học tập, phân tích JSON phòng thủ (loại bỏ markdown code blocks) và fallback định dạng JSON khi gặp mã 400. | **ĐÃ HOÀN THÀNH** |
+| **P0.3** | **Bỏ tự gắn citation đầu tiên** | Bỏ mã gán tự động `sourceIds: [context.sources[0].sourceId]`. Model trả về `basis: 'materials'` nhưng thiếu citation sẽ bị từ chối với lỗi `aiInvalidCitation`, không biến thành câu trả lời có nguồn hợp lệ. | **ĐÃ HOÀN THÀNH** |
+| **P0.4** | **Kiểm thử và sửa hỏi theo chương/trang** | “Chương 5 trang 37” trích xuất đúng file và trang; hỗ trợ từ đồng nghĩa (chương, bài, buổi, tuần, lecture, lab, slide) và từ khóa tên file. Thiếu nội dung hoặc lỗi trang thì báo cụ thể với `basis: 'insufficient'`. | **ĐÃ HOÀN THÀNH** |
+| **P0.5** | **Hoàn thiện gửi, dừng, retry và khôi phục lịch sử** | Không mất/nhân đôi câu hỏi; lỗi mạng giữ lại turn thất bại để người dùng bấm thử lại; dừng (`cancelChat`) chuyển sang `chatCancelled`; retry bảo toàn `provider`, `model`, `mode` và `sourceTarget`. | **ĐÃ HOÀN THÀNH** |
 
 ---
 
-## 2. Thay đổi chi tiết theo từng module
+## 2. Chi tiết Kỹ thuật Các Thay đổi
 
-### 2.1. Cơ sở dữ liệu và Migration
-- **File migration**: `server/student/migrations/008-ollama-cloud.sql`
-  - Nâng cấp ràng buộc CHECK trên cột `provider` của bảng `chat_turns` để hỗ trợ `'ollama-cloud'`:
-    ```sql
-    CHECK (provider IN ('openai', 'gemini', 'deepseek', 'ollama', 'ollama-cloud', 'mock'))
-    ```
-  - Thêm cột `sourceTarget TEXT` vào `chat_turns` để lưu trữ thông tin định vị tài liệu / trang (dạng JSON: `{"documentId": "...", "documentName": "...", "pageNumber": 5}`).
-- **Đăng ký migration**: Cập nhật `server/student/database.mjs` thêm `008-ollama-cloud.sql`.
+### 2.1. P0.1 & P0.2 — Trạng thái Provider và Giao thức Ollama Cloud
+- **Xác thực kết nối bằng Ping tối giản**:
+  - Bổ sung phương thức `cloudChat.verify(model, { signal })` trong `server/ai/ollama.mjs`: gửi request kiểm tra tối giản `{"role": "user", "content": "Say OK"}` tới `/api/chat` với `options: { num_predict: 4 }`.
+  - Endpoint mới: `POST /api/student/ai/verify` nhận `{ provider: 'ollama-cloud', model: string }` và trả về trạng thái thực tế:
+    - `connected`: Kết nối và xác thực thành công.
+    - `auth_required` (401): Người dùng chưa chạy `ollama signin`.
+    - `rate_limited` (402): Hết lượt dùng/credits trên `ollama.com/plans`.
+    - `model_missing` (404): Model không tồn tại trên cloud.
+    - `disconnected`: Không kết nối được tới daemon Ollama tại loopback `127.0.0.1:11434`.
+  - Cập nhật hàm `status()` của Ollama để trả về đối tượng `cloudStatus: { state, model, error }`.
+- **Phân tích phản hồi JSON phòng thủ và Format Fallback**:
+  - Trích xuất nội dung JSON từ khối markdown ```json ... ``` nếu model cloud tự động bọc code block.
+  - Khi Ollama trả về lỗi 400 (do model cloud không hỗ trợ structured schema phức tạp), tự động fallback gọi lại với `format: 'json'` kết hợp hướng dẫn cấu trúc trong prompt.
+- **Giao diện Chat UI (`CourseChat.tsx`, `LocalAIStatus.tsx`)**:
+  - Trạng thái sẵn sàng (`ready`) đối với Ollama Cloud yêu cầu: daemon đang chạy VÀ kết nối cloud đã được kiểm tra (`cloudState === 'connected'`).
+  - Khi chưa kiểm tra, UI hiển thị badge *"Ollama Cloud: Chưa kiểm tra kết nối"* kèm nút *"Kiểm tra kết nối"*.
+  - Trước khi gửi câu hỏi thật kèm trích đoạn tài liệu của người học, nếu cloud chưa được xác minh, client tự động kích hoạt kiểm tra ping trước để bảo vệ dữ liệu.
 
-### 2.2. Provider Ollama Cloud
-- **File**: `server/ai/ollama.mjs`
-  - Mở rộng regex validation tên model để chấp nhận ký tự `:`, cho phép các model gắn tag `:cloud`.
-  - Thêm phương thức `cloudChat`:
-    - Nhận động `context.model` theo lựa chọn của người học.
-    - Ép định dạng JSON có cấu trúc (`format: json`) và schema câu trả lời Tutor (`TUTOR_FORMAT.schema`).
-    - Bắt lỗi HTTP 401 từ daemon Ollama và ánh xạ thành mã lỗi `ollamaAuthRequired` (hướng dẫn người dùng chạy `ollama signin`).
-    - Bắt lỗi HTTP 402 / credit từ daemon Ollama và ánh xạ thành mã lỗi `ollamaRateLimit` (hướng dẫn nạp thêm credits tại `ollama.com/plans`).
-    - Bắt lỗi HTTP 404 và ánh xạ thành mã lỗi `ollamaModelMissing`.
-- **File**: `server/ai/providers.mjs`
-  - Đăng ký `ollama-cloud` vào danh sách `ids` và bảng nhãn hiển thị `LABELS`: `'Ollama · AI Cloud'`.
-  - Thêm danh sách model cloud mặc định `DEFAULT_CLOUD_MODELS`:
-    - `glm-5.3-flash:cloud`
-    - `qwen2.5:cloud`
-    - `deepseek-r1:cloud`
-    - `llama3.3:cloud`
-  - Cho phép cấu hình danh sách model cloud qua biến môi trường `OLLAMA_CLOUD_MODELS`.
-  - Xuất `cloudModels` trong `registry.settings()` để frontend render dropdown cho người dùng tự do lựa chọn.
+### 2.2. P0.3 — Loại bỏ Citation Tự gắn và Kiểm tra Nguồn Nghiêm ngặt
+- **Vấn đề trước đây**: Tại `server/ai/chat.mjs`, khi model trả về `basis: 'materials'` nhưng danh sách `sourceIds` rỗng, code cũ tự động gán `response.sourceIds = [context.sources[0].sourceId]`.
+- **Khắc phục**: Đã loại bỏ hoàn toàn dòng gán nguồn nhân tạo này.
+- **Hành vi mới**:
+  - Khi model trả về `basis: 'materials'` mà không có trích dẫn nguồn thực tế, `validateTutorAnswer` trong `server/ai/context.mjs` sẽ bắt lỗi nghiêm ngặt và ném ngoại lệ `aiInvalidCitation`.
+  - Turn chat chuyển sang trạng thái `failed` với mã lỗi `aiInvalidCitation` ("Model chưa trả về nguồn hợp lệ của môn học. Hãy thử lại câu hỏi.").
+  - Tuyệt đối không lưu nguồn giả mạo vào cơ sở dữ liệu.
 
-### 2.3. Bộ máy định vị Tài liệu & Trang (Targeting Engine)
-- **File mới**: `server/ai/targeting.mjs`
-  - Hàm `resolveSourceTarget({ db, courseId, message, explicitTarget, lang })`:
-    1. Trích xuất số trang từ `explicitTarget.pageNumber` hoặc từ câu hỏi tiếng Việt/Anh (`trang 37`, `slide 12`, `page 4`, `p. 15`).
-    2. Trích xuất tài liệu từ `explicitTarget.documentId` hoặc nhận diện theo mẫu chương / bài (`chương 1`, `chuong 2`, `chap 3`) đối chiếu với tên file PDF.
-    3. Xử lý trường hợp mơ hồ (`ambiguous`): nếu nhiều file cùng khớp một chương, trả về giải thích yêu cầu chọn file cụ thể.
-    4. Kiểm tra biên trang: nếu `targetPage > pageCount`, báo lỗi vượt quá số trang (`pageOutOfRange`).
-    5. Kiểm tra chẩn đoán trích xuất từ bảng `document_pages`:
-       - Nếu trang bị `ocr_failed`, giải thích trung thực lỗi OCR trang đó (`ocrFailed`).
-       - Nếu trang trống (`empty` hoặc `charCount === 0`), giải thích trung thực trang không có chữ (`emptyPage`).
-    6. Truy vấn các chunk thuộc đúng trang mục tiêu và trả về `pageChunks` có `score = 1.0`.
+### 2.3. P0.4 — Tối ưu hóa Bộ máy Định vị Tài liệu & Trang (`targeting.mjs`)
+- **Mở rộng nhận diện chương / bài**:
+  - Bổ sung các tiền tố phổ biến: `(?:chương|chuong|chapter|chap|bài|bai|buổi|buoi|tuần|tuan|lecture|lab|part|section|sec)`.
+- **Nhận diện tài liệu qua từ khóa tên file**:
+  - Khi người dùng không nhắc đến số chương mà nhắc đến tên file (ví dụ: *"xem tài liệu Database trang 37"*), engine tách từ khóa phân biệt để tìm đúng file `Chuong_5_Database.pdf`.
+  - Nếu có nhiều file cùng chứa từ khóa, engine báo `ambiguous: true` và liệt kê các file trùng để người dùng chọn cụ thể.
+- **Chẩn đoán trang chi tiết**:
+  - `pageOutOfRange`: Trang yêu cầu vượt quá số trang thực tế của tài liệu.
+  - `ocrFailed`: Trang bị lỗi khi xử lý OCR ảnh.
+  - `emptyPage`: Trang không có chữ nào (trang trống hoặc chỉ có hình chưa OCR).
+  - `noChunks`: Trang chưa có đoạn văn bản nào được index.
+  - Khi rơi vào các trường hợp trên, Tutor trả lời ngay với `basis: 'insufficient'` kèm giải thích rõ ràng, không gọi model AI.
 
-### 2.4. Tích hợp Chat Service
-- **File**: `server/ai/chat.mjs`
-  - Đọc `sourceTarget`, `model`, `documentId`, `pageNumber` từ request gửi lên.
-  - Gọi `resolveSourceTarget`:
-    - Nếu câu hỏi chỉ định một trang cụ thể nhưng trang đó bị lỗi, trống, hoặc ngoài phạm vi: trả về ngay tin nhắn của Tutor với `basis: 'insufficient'` giải thích lý do cụ thể mà không cần gọi model AI, tránh lãng phí token và tránh sinh câu trả lời bịa đặt.
-    - Nếu hợp lệ: các chunk của trang mục tiêu được đưa lên đầu danh sách trích đoạn tài liệu (`retrievedResults`), đảm bảo model trả lời bám sát đúng nội dung trang yêu cầu.
-  - Truyền `context.model = claimed.model` vào provider để gọi chính xác model cloud người dùng đã chọn.
-  - Lưu trữ `sourceTarget` vào bảng `chat_turns` và trả về trong `history()` để hiển thị lịch sử và hỗ trợ replay/retry.
-
-### 2.5. Giao diện người dùng (Frontend)
-- **Files**:
-  - `src/features/ai/types.ts`: Bổ sung `'ollama-cloud'` vào `ChatProviderId`, bổ sung `cloudModels?: string[]` vào `AISettings`, bổ sung interface `SourceTarget` và trường `sourceTarget` vào `ChatTurn`.
-  - `src/features/ai/api.ts`: Bổ sung `model`, `documentId`, `pageNumber`, `sourceTarget` vào `ChatRequest`.
-  - `src/features/academic/StudentWorkspace.tsx`: Truyền danh sách `courseMaterials` vào `<CourseChat />`.
-  - `src/features/ai/CourseChat.tsx`:
-    - Xóa `input` ngay khi submit form.
-    - Thêm `optimisticTurn` để hiển thị ngay lập tức câu hỏi của người dùng và trạng thái `Đang tìm và đọc tài liệu…`.
-    - Thêm dropdown chọn Cloud Model khi provider là `ollama-cloud` (người dùng chọn `glm-5.3-flash:cloud`, `qwen2.5:cloud`, v.v.).
-    - Thêm dropdown chọn tài liệu mục tiêu (`Tài liệu mục tiêu`: Tất cả tài liệu hoặc từng file PDF cụ thể).
-    - Hiển thị badge `🎯 Tài liệu mục tiêu: [Tên file] · Trang [X]` trên tin nhắn của người dùng.
-    - Hiển thị nút "Dừng trả lời" (Stop) khi câu hỏi đang xử lý.
-  - `src/i18n/locales/vi/student.js` & `src/i18n/locales/en/student.js`: Bổ sung đầy đủ nhãn ngôn ngữ và thông báo lỗi liên quan đến Ollama Cloud và targeting.
+### 2.4. P0.5 — Ổn định Quá trình Gửi, Dừng, Thử lại và Lịch sử Chat
+- **Bảo toàn câu hỏi**:
+  - Khi bấm Gửi, câu hỏi được hiển thị lạc quan (`optimisticTurn`) ở trạng thái `pending`.
+  - Nếu gặp lỗi mạng hoặc dừng request, lượt chat được lưu giữ lại trong lịch sử dưới trạng thái `failed` kèm nút `Thử lại câu hỏi`, ngăn chặn việc mất câu hỏi của người học.
+- **Nút Dừng trả lời (Stop)**:
+  - Gọi API `POST /api/student/courses/:id/cancel` để hủy tiến trình xử lý trên server và abort controller ở client, cập nhật mã trạng thái thành `chatCancelled`.
+- **Bảo toàn ngữ cảnh khi Retry**:
+  - Lượt retry giữ nguyên `provider`, `model`, `mode` và `sourceTarget` (documentId và pageNumber) ban đầu.
 
 ---
 
-## 3. Kết quả Kiểm thử (Unit & Regression Tests)
+## 3. Bằng chứng Kiểm thử (Unit Tests)
 
-Hệ thống đã chạy và vượt qua 100% các bài test liên quan:
+Bộ kiểm thử hoàn thiện tại `tests/unit/student-b5.test.mjs` bao phủ đầy đủ 5 tiêu chí P0:
 
-1. **Test B5 mới (`tests/unit/student-b5.test.mjs`)**:
-   - `B5: Ollama Cloud provider is registered separately from Ollama Local`: **PASS**
-   - `B5: Ollama Cloud chat passes dynamic model and parses responses`: **PASS**
-   - `B5: Ollama Cloud maps authentication, credit/rate limits and missing model errors`: **PASS**
-   - `B5: resolveSourceTarget extracts page and chapter patterns and validates against documents`: **PASS**
-   - `B5: CourseChat end-to-end persists sourceTarget and model, and handles targeted questions`: **PASS**
-   - Tổng kết: **5/5 PASS** (0 FAIL).
+1. `B5 P0.1: Provider status differentiates unverified, connected, auth_required and disconnected`: **PASS**
+2. `B5 P0.2: Ollama Cloud verify and chat protocols with markdown parsing and format fallback`: **PASS**
+3. `B5 P0.2: Ollama Cloud maps authentication, credit/rate limits and missing model errors`: **PASS**
+4. `B5 P0.3: Model with missing citations is strictly rejected without synthetic citation injection`: **PASS**
+5. `B5 P0.4: resolveSourceTarget handles chapter synonyms, filename keywords and diagnostics`: **PASS**
+6. `B5 P0.5: CourseChat end-to-end retry preserves provider/model/target, and cancel marks chatCancelled`: **PASS**
 
-2. **Test hồi quy (Regression Tests)**:
-   - `tests/unit/ai-providers.test.mjs`: **12/12 PASS**
-   - `tests/unit/student-demo.test.mjs`: **5/5 PASS**
-   - `tests/unit/student.test.mjs`: **6/6 PASS**
-   - `tests/unit/student-b4.test.mjs`: **8/8 PASS**
-   - `tests/unit/student-m2.test.mjs` đến `student-m5.test.mjs` và `pdf-ocr.test.mjs`: **39/39 PASS** (1 skip test Windows OCR thực tế)
-
-3. **Kiểm tra mã nguồn**:
-   - TypeScript compilation (`tsc --noEmit`): **0 errors**
-   - Linter (`eslint src/`): **0 warnings / 0 errors**
+### Kiểm tra Hồi quy Toàn bộ Project
+- **76 tests passed, 0 failed, 1 skipped** (bài test Windows OCR phần cứng).
+- TypeScript Typecheck (`tsc --noEmit`): **0 errors**.
+- ESLint Check (`eslint src/`): **0 errors, 0 warnings**.
 
 ---
 
-## 4. Hạn chế và Lưu ý Vận hành
+## 4. Hướng dẫn Vận hành Kiểm chứng
 
-1. **Xác thực Ollama Cloud**:
-   - Nếu máy chưa đăng nhập Ollama, khi gọi `ollama-cloud` hệ thống sẽ báo lỗi `ollamaAuthRequired`. Người dùng cần mở terminal và chạy:
-     ```bash
-     ollama signin
-     ```
-   - Nếu tài khoản hết credits hoặc chưa đăng ký gói sử dụng cloud của Ollama, dịch vụ sẽ báo lỗi `ollamaRateLimit` và hướng dẫn kiểm tra tại `https://ollama.com/plans`.
-2. **Cô lập Local vs Cloud**:
-   - Việc gọi model Ollama Cloud chỉ gửi câu hỏi, memory liên quan, lịch sử ngắn và các đoạn trích PDF tìm thấy; không gửi toàn bộ file PDF lên cloud.
-   - Quá trình chunking và tạo vector embeddings của tài liệu hoàn toàn diễn ra trên máy local thông qua model embedding đã cấu hình (ví dụ `embeddinggemma:latest`).
-3. **Phạm vi Claude API**:
-   - Theo quyết định Phương án A, không tích hợp Claude API hoặc tái sử dụng token Claude Code trong giai đoạn B5, giữ danh sách provider tối giản và an toàn.
-
+1. **Kiểm tra Ollama Local**:
+   - Chạy `ollama serve` (hoặc mở ứng dụng Ollama trên máy).
+   - Kiểm tra model local: `ollama list` có `qwen3:4b` và `embeddinggemma:latest`.
+2. **Kiểm tra Ollama Cloud**:
+   - Chạy `ollama signin` trên terminal để đăng nhập tài khoản Ollama.
+   - Mở không gian môn học, vào tab Trò chuyện, chọn provider **Ollama · AI Cloud**.
+   - Bấm nút **Kiểm tra kết nối** cạnh model được chọn (ví dụ `glm-5.3-flash:cloud`): hệ thống gửi test ping và chuyển sang trạng thái **Đã kết nối**.
+   - Thử hỏi câu hỏi chỉ định trang: *"giải thích chương 1 trang 2"*: hệ thống định vị đúng trang 2 và trả lời có căn cứ trích dẫn cụ thể.

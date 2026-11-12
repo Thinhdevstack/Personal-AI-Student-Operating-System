@@ -46,6 +46,7 @@ export function createStudentRoutes({ service, authorized, sameOrigin, demoSeed 
       }
       if (req.method === 'GET' && parts.length === 1 && kind === 'ai') return send(res, 200, service.aiSettings());
       if (req.method === 'GET' && parts.length === 2 && kind === 'ai' && id === 'local') return send(res, 200, await service.localAIStatus());
+      if (req.method === 'POST' && parts.length === 2 && kind === 'ai' && id === 'verify') return send(res, 200, await service.verifyAIProvider(await readObject(req)));
       if (kind === 'memories' && parts.length <= 2) {
         const target = { scope: url.searchParams.get('scope'), courseId: url.searchParams.get('courseId') };
         if (parts.length === 1 && req.method === 'GET') return send(res, 200, service.memories(target));

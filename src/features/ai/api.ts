@@ -17,6 +17,13 @@ export interface ChatRequest {
   sourceTarget?: { documentId?: string; pageNumber?: number };
 }
 export const localAIStatus = (signal?: AbortSignal) => request<LocalAIStatus>('ai/local', { signal });
+export const verifyAIProvider = (body: { provider: ChatProviderId; model?: string }, signal?: AbortSignal) =>
+  request<{ ok: boolean; state: string; error?: string; model?: string }>('ai/verify', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+    signal,
+  });
 export const cancelChat = (courseId: string, requestId: string) => request<{ cancelled: boolean }>(`courses/${courseId}/cancel`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ requestId }) });
 export const aiSettings = (signal?: AbortSignal) => request<AISettings>('ai', { signal });
 export const chatHistory = (courseId: string, signal?: AbortSignal) => request<ChatHistory>(`courses/${courseId}/chat`, { signal });

@@ -84,6 +84,7 @@ export function createStudentService(dir, options = {}) {
     sendChat: chat.send,
     cancelChat: chat.cancel,
     localAIStatus: () => aiRegistry.localStatus ? aiRegistry.localStatus() : { connected: false, chatReady: false, embeddingReady: false, models: [], error: 'ollamaUnavailable' },
+    verifyAIProvider: ({ provider, model }) => aiRegistry.verifyProvider ? aiRegistry.verifyProvider(provider, { model }) : { ok: false, state: 'not_configured' },
     aiSettings: () => ({ ...aiRegistry.settings(), studentDemo: options.studentDemo === true }),
     memories: memory.list,
     createMemory: memory.create,

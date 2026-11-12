@@ -31,6 +31,12 @@ export interface AISettings {
 export interface LocalAIStatus {
   connected: boolean; chatReady: boolean; embeddingReady: boolean; busy?: boolean;
   chatModel?: string; embeddingModel?: string; error?: string; models: { name: string; size: number }[];
+  cloudStatus?: {
+    ok?: boolean;
+    state: 'not_configured' | 'unverified' | 'connected' | 'auth_required' | 'rate_limited' | 'model_missing' | 'disconnected' | 'error';
+    model?: string;
+    error?: string;
+  };
 }
 
 export type MemoryTarget = { scope: 'global'; courseId?: null } | { scope: 'course'; courseId: string };

@@ -32,6 +32,21 @@ export function createProviderRegistry({ embedding, entries, defaultProvider = '
       if (!entry) throw new StudentError(id === 'mock' ? 'aiMockDisabled' : 'aiProviderInvalid');
       return entry;
     },
+    async verifyProvider(id, { model, signal } = {}) {
+      if (id === 'ollama-cloud') {
+        const entry = available.get('ollama-cloud');
+        if (entry?.provider?.verify) {
+          return await entry.provider.verify(model, { signal });
+        }
+        return { ok: false, state: 'not_configured', error: 'aiProviderInvalid' };
+      }
+      if (id === 'ollama') {
+        const st = await (localStatus ? localStatus() : { connected: false });
+        return { ok: !!(st.connected && st.chatReady), state: st.connected && st.chatReady ? 'connected' : st.connected ? 'missing_model' : 'disconnected' };
+      }
+      const entry = available.get(id);
+      return { ok: !!entry?.configured, state: entry?.configured ? 'configured' : 'not_configured' };
+    },
     settings() {
       return {
         defaultProvider, isMock, webSearch: { configured: false },

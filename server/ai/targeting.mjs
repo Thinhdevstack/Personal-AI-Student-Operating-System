@@ -35,10 +35,10 @@ export function resolveSourceTarget({ db, courseId, message, explicitTarget, lan
   }
 
   if (!targetDoc) {
-    const chapterMatch = message.match(/(?:chương|chuong|chapter|chap|bài|bai)\s*(\d{1,3})\b/i);
+    const chapterMatch = message.match(/(?:chương|chuong|chapter|chap|bài|bai|buổi|buoi|tuần|tuan|lecture|lab|part|section|sec)\s*(\d{1,3})\b/i);
     if (chapterMatch) {
       const chapterNum = parseInt(chapterMatch[1], 10);
-      const chapterPattern = new RegExp(`(?:chuong|chapter|chap|bai)[-_ ]*0*${chapterNum}(?:[^a-zA-Z0-9]|$)`, 'i');
+      const chapterPattern = new RegExp(`(?:chuong|chapter|chap|bai|buoi|tuan|lecture|lab|part|section|sec)[-_ ]*0*${chapterNum}(?:[^a-zA-Z0-9]|$)`, 'i');
       const matched = docs.filter((d) => chapterPattern.test(stripAccents(d.originalFilename || d.filename)));
       if (matched.length === 1) {
         targetDoc = matched[0];
@@ -52,6 +52,32 @@ export function resolveSourceTarget({ db, courseId, message, explicitTarget, lan
         };
       }
     }
+
+    // Match document by filename keyword if mentioned
+    if (!targetDoc) {
+      const normMsg = stripAccents(message);
+      const stopWords = new Set(['chuong', 'chapter', 'slide', 'lecture', 'bai', 'tuan', 'buoi', 'part', 'sec', 'section', 'tailieu', 'file', 'sach', 'book']);
+      const titleMatched = docs.filter((d) => {
+        const base = stripAccents(d.originalFilename || d.filename).replace(/\.pdf$/i, '').trim();
+        if (base.length >= 4 && normMsg.includes(base)) return true;
+        const cleanBase = base.replace(/[-_]/g, ' ');
+        if (cleanBase.length >= 4 && normMsg.includes(cleanBase)) return true;
+        const words = cleanBase.split(' ').map((w) => w.trim()).filter((w) => w.length >= 4 && !stopWords.has(w));
+        return words.some((w) => normMsg.includes(w));
+      });
+      if (titleMatched.length === 1) {
+        targetDoc = titleMatched[0];
+      } else if (titleMatched.length > 1) {
+        return {
+          ambiguous: true,
+          matchedDocs: titleMatched.map((d) => ({ id: d.id, name: d.originalFilename })),
+          explanation: lang === 'vi'
+            ? `Tìm thấy nhiều tài liệu phù hợp (${titleMatched.map((d) => d.originalFilename).join(', ')}). Vui lòng chọn tài liệu cụ thể.`
+            : `Multiple materials matched (${titleMatched.map((d) => d.originalFilename).join(', ')}). Please select a specific material.`,
+        };
+      }
+    }
+
     // If there is only one document in the course and user specified a page, bind to it
     if (!targetDoc && targetPage && docs.length === 1) {
       targetDoc = docs[0];

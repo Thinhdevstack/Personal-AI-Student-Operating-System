@@ -184,12 +184,8 @@ export function createCourseChat({ db, aiProvider, memory = createMemoryService(
           : (language === 'vi' ? 'Tài liệu truy xuất chưa đủ căn cứ để trả lời câu hỏi này. Hãy bổ sung tài liệu hoặc chọn Tài liệu + mở rộng.' : 'The retrieved materials do not provide enough evidence. Add a document or choose Materials + expanded knowledge.');
         response = { ...response, answer: unavailable, basis: 'insufficient', sourceIds: [] };
       }
-      if (response.basis === 'materials' && (!Array.isArray(response.sourceIds) || !response.sourceIds.length)) {
-        if (context.sources.length > 0) {
-          response = { ...response, sourceIds: [context.sources[0].sourceId] };
-        } else {
-          response = { ...response, basis: 'insufficient', sourceIds: [] };
-        }
+      if (response.basis === 'materials' && !context.sources.length) {
+        response = { ...response, basis: 'insufficient', sourceIds: [] };
       }
       const answer = validateTutorAnswer(response, context.sources);
       db.transaction(() => {
