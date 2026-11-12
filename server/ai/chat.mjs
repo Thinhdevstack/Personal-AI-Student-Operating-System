@@ -99,7 +99,7 @@ export function createCourseChat({ db, aiProvider, memory = createMemoryService(
       const mode = input.mode ?? existing?.mode ?? 'expanded';
       const model = input.model ?? existing?.model ?? null;
       const finalSourceTarget = targetPayload ?? existing?.sourceTarget ?? null;
-      if (existing && (existing.userMessage !== message || existing.language !== language || existing.provider !== providerId || existing.mode !== mode)) throw new StudentError('chatRequestConflict', 409);
+      if (existing && (existing.userMessage !== message || existing.language !== language || existing.provider !== providerId || existing.mode !== mode || (input.model !== undefined && existing.model !== input.model) || (explicitTarget && targetPayload !== existing.sourceTarget))) throw new StudentError('chatRequestConflict', 409);
       if (existing?.status === 'completed') return { replay: true };
       if (db.prepare("SELECT id FROM chat_turns WHERE conversationId=? AND status='pending'").get(conv.id)) throw new StudentError('chatBusy', 409);
       if (existing && db.prepare('SELECT id FROM chat_turns WHERE conversationId=? AND sequence>? LIMIT 1').get(conv.id, existing.sequence)) throw new StudentError('chatStaleRetry', 409);

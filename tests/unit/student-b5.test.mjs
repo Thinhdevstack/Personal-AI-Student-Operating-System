@@ -382,6 +382,9 @@ test('B5 P0.5: CourseChat end-to-end retry preserves provider/model/target, and 
   assert.equal(completed.model, 'glm-5.3-flash:cloud');
   assert.equal(completed.sourceTarget?.pageNumber, 2);
   assert.equal(completed.sourceTarget?.documentId, doc.id);
+  const originalRequest = { courseId: course.id, requestId: requestId1, message: 'Giải thích Raft ở chương 2 trang 2', provider: 'ollama-cloud', mode: 'materials' };
+  await assert.rejects(service.sendChat({ ...originalRequest, model: 'other:cloud' }), (err) => err.code === 'chatRequestConflict');
+  await assert.rejects(service.sendChat({ ...originalRequest, sourceTarget: { documentId: doc.id, pageNumber: 1 } }), (err) => err.code === 'chatRequestConflict');
 
   // Turn 2: Cancel chat
   const requestId2 = randomUUID();
