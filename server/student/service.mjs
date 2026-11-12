@@ -7,6 +7,7 @@ import { createChunks } from '../documents/chunking.mjs';
 import { createAIProviders, registryForProvider } from '../ai/providers.mjs';
 import { searchCourseMaterials } from '../ai/retrieval.mjs';
 import { createCourseChat } from '../ai/chat.mjs';
+import { createStudyAssistant } from '../ai/assistant.mjs';
 import { createMemoryService } from '../ai/memory.mjs';
 import { createStudentActivity } from './activity.mjs';
 
@@ -49,6 +50,7 @@ export function createStudentService(dir, options = {}) {
   const memory = createMemoryService({ db });
   const activity = options.activity || createStudentActivity();
   const chat = createCourseChat({ db, aiProvider, memory, activity, aiRegistry });
+  const assistant = createStudyAssistant({ db, aiRegistry, memory });
 
   function semester(id) {
     const row = db.prepare('SELECT * FROM semesters WHERE id = ?').get(id);
@@ -76,7 +78,8 @@ export function createStudentService(dir, options = {}) {
   }
 
   return {
-    close: () => { db.close(); if (!options.activity) activity.close(); },
+    close: () => { assistant.close(); db.close(); if (!options.activity) activity.close(); },
+    assistant,
     activity,
     get db() { return db; },
     get aiProvider() { return aiProvider; },

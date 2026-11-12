@@ -40,6 +40,21 @@ export function createStudentRoutes({ service, authorized, sameOrigin, demoSeed 
       if (!['GET', 'HEAD'].includes(req.method) && !sameOrigin(req)) throw new StudentError('forbidden', 403);
       const parts = url.pathname.split('/').filter(Boolean).slice(2);
       const [kind, id, child] = parts;
+      if (kind === 'assistant') {
+        if (parts.length === 1 && req.method === 'GET') return send(res, 200, service.assistant.list());
+        if (parts.length === 1 && req.method === 'POST') return send(res, 201, service.assistant.create(await readObject(req)));
+        if (parts.length === 2 && req.method === 'GET') return send(res, 200, service.assistant.history(id));
+        if (parts.length === 2 && req.method === 'PATCH') return send(res, 200, service.assistant.rename(id, await readObject(req)));
+        if (parts.length === 2 && req.method === 'DELETE') { service.assistant.remove(id); return send(res, 200, { ok: true }); }
+        if (parts.length === 3 && child === 'cancel' && req.method === 'POST') return send(res, 200, service.assistant.cancel(id, (await readObject(req)).requestId));
+        if (parts.length === 3 && child === 'chat' && req.method === 'POST') {
+          const input = await readObject(req), controller = new AbortController();
+          const disconnect = () => { if (!res.writableEnded) controller.abort(); };
+          res.on('close', disconnect);
+          try { return send(res, 200, await service.assistant.send(id, input, { signal: controller.signal })); }
+          finally { res.off('close', disconnect); }
+        }
+      }
       if (req.method === 'POST' && parts.length === 2 && kind === 'demo' && id === 'seed') {
         if (!demoSeed || !service.aiSettings().studentDemo) throw new StudentError('notFound', 404);
         return send(res, 200, await demoSeed());

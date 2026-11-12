@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { CHAT_LIMITS as L } from './config.mjs';
 import { aiError } from './openai.mjs';
-import { buildAIContext, retrievalQuestion, validateTutorAnswer } from './context.mjs';
+import { buildAIContext, retrievalQuestion } from './context.mjs';
+import { finalizeTutor } from './tutor.mjs';
 import { searchCourseMaterials } from './retrieval.mjs';
 import { resolveSourceTarget } from './targeting.mjs';
 import { StudentError } from '../student/storage.mjs';
@@ -158,8 +159,8 @@ export function createCourseChat({ db, aiProvider, memory = createMemoryService(
       if (claimed.resolvedTarget?.valid && claimed.resolvedTarget.pageChunks?.length) {
         retrievedResults = [...claimed.resolvedTarget.pageChunks];
       }
-      if (hasMaterials && retrievedResults.length < L.chunks) {
-        const semantic = await searchCourseMaterials({ db, courseId: activeCourse.id, query: retrievalQuestion(message, recent), aiProvider, limit: L.chunks, minScore: L.retrievalMinScore, includeArchived: true, signal });
+      if (hasMaterials && !claimed.resolvedTarget?.valid && retrievedResults.length < L.chunks) {
+        const semantic = await searchCourseMaterials({ db, courseId: activeCourse.id, documentId: claimed.resolvedTarget?.targetDoc?.id, query: retrievalQuestion(message, recent), aiProvider, limit: L.chunks, minScore: L.retrievalMinScore, includeArchived: true, signal });
         const existingChunkIds = new Set(retrievedResults.map((r) => r.chunkId));
         for (const res of semantic.results) {
           if (!existingChunkIds.has(res.chunkId)) {
@@ -181,13 +182,13 @@ export function createCourseChat({ db, aiProvider, memory = createMemoryService(
       if ((claimed.mode === 'materials' && response.basis === 'general') || (response.basis === 'insufficient' && (echoed || response.answer?.trim().toLowerCase() === message.toLowerCase())) || (response.basis === 'materials' && echoed)) {
         const unavailable = claimed.mode === 'expanded'
           ? (language === 'vi' ? 'Mô hình chưa giải thích được câu này một cách tin cậy. Hãy bổ sung tài liệu mô tả chi tiết hoặc nêu rõ ngữ cảnh của thuật ngữ.' : 'The model could not explain this reliably. Add detailed material or clarify the context of the term.')
-          : (language === 'vi' ? 'Tài liệu truy xuất chưa đủ căn cứ để trả lời câu hỏi này. Hãy bổ sung tài liệu hoặc chọn Tài liệu + mở rộng.' : 'The retrieved materials do not provide enough evidence. Add a document or choose Materials + expanded knowledge.');
+          : (language === 'vi' ? 'Mô hình chưa tạo được câu trả lời hợp lệ theo tài liệu. Đây chưa phải kết luận tài liệu thiếu thông tin. Bạn có thể thử lại hoặc chỉ rõ tài liệu và trang cần giải thích.' : 'The model did not produce a valid document-grounded answer. This does not establish that the materials lack information. Retry or specify the document and page.');
         response = { ...response, answer: unavailable, basis: 'insufficient', sourceIds: [] };
       }
       if (response.basis === 'materials' && !context.sources.length) {
         response = { ...response, basis: 'insufficient', sourceIds: [] };
       }
-      const answer = validateTutorAnswer(response, context.sources);
+      const answer = finalizeTutor(response, context);
       db.transaction(() => {
         const turn = db.prepare("SELECT id FROM chat_turns WHERE id=? AND attemptId=? AND status='pending' AND leaseExpiresAt>?").get(claimed.id, claimed.attemptId, Date.now());
         if (!turn) throw new StudentError('chatInterrupted', 409);

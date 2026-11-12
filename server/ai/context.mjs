@@ -39,7 +39,7 @@ export function buildAIContext({ course, message, history = [], results = [], me
     sourceBudget -= content.length;
   }
   let memoryBudget = MEMORY_LIMITS.contextChars;
-  const selectedMemories = memories.filter((item) => (item.scope === 'global' && item.courseId === null) || (item.scope === 'course' && item.courseId === course.id)).slice(0, MEMORY_LIMITS.selected).flatMap(({ id, scope, courseId, content, updatedAt }) => {
+  const selectedMemories = memories.filter((item) => (item.scope === 'global' && item.courseId === null) || (item.scope === 'course' && (item.courseId === course.id || course.selectedCourseIds?.includes(item.courseId)))).slice(0, MEMORY_LIMITS.selected).flatMap(({ id, scope, courseId, content, updatedAt }) => {
     if (typeof content !== 'string' || content.length > MEMORY_LIMITS.contentChars || content.length > memoryBudget) return [];
     memoryBudget -= content.length;
     return [{ id, scope, courseId, content, updatedAt }];
@@ -64,6 +64,8 @@ export function buildAIContext({ course, message, history = [], results = [], me
 export function validateTutorAnswer(result, sources) {
   if (!result || typeof result.answer !== 'string' || !result.answer.trim() || result.answer.length > L.answerChars || !['materials', 'general', 'insufficient'].includes(result.basis) || !Array.isArray(result.sourceIds) || result.sourceIds.length > L.chunks || result.sourceIds.some((id) => typeof id !== 'string')) throw new StudentError('aiInvalidResponse', 502);
   const allowed = new Map(sources.map((source) => [source.sourceId, source]));
+  if (result.basis === 'materials' && result.sourceIds.some((id) => !allowed.has(id))) throw new StudentError('aiInvalidCitation', 502);
+  if (result.basis !== 'materials' && result.sourceIds.length) throw new StudentError('aiInvalidCitation', 502);
   const verified = result.basis === 'materials' ? [...new Set(result.sourceIds)].filter((id) => allowed.has(id)).map((id) => {
     const { sourceId, chunkId, documentId, documentName, pageNumber, chunkIndex } = allowed.get(id);
     return { sourceId, chunkId, documentId, documentName, pageNumber, chunkIndex };

@@ -8,14 +8,14 @@ export function cosineSimilarity(a, b) {
   return norm ? dot / norm : 0;
 }
 
-export async function searchCourseMaterials({ db, courseId, query, limit = 5, aiProvider, includeArchived = false, minScore = -1, signal }) {
+export async function searchCourseMaterials({ db, courseId, documentId, query, limit = 5, aiProvider, includeArchived = false, minScore = -1, signal }) {
   if (typeof query !== 'string' || !query.trim() || query.length > 4000) throw new StudentError('invalidInput');
   const course = db.prepare('SELECT c.status, s.status AS semesterStatus FROM courses c JOIN semesters s ON s.id=c.semesterId WHERE c.id=?').get(courseId);
   if (!course) throw new StudentError('notFound', 404);
   if ((course.status === 'archived' || course.semesterStatus === 'archived') && !includeArchived) throw new StudentError('archived', 409);
   const rows = db.prepare('SELECT c.id AS chunkId, c.documentId, c.pageNumber, c.chunkIndex, c.content, d.originalFilename AS documentName, e.embedding, e.provider, e.model, e.dimensions, e.modelVersion FROM document_chunks c JOIN chunk_embeddings e ON e.chunkId=c.id JOIN documents d ON d.id=c.documentId WHERE c.courseId=? AND d.courseId=? AND d.status=?').all(courseId, courseId, 'ready');
   if (!rows.length) return { results: [] };
-  const compatible = rows.filter((row) => row.provider === (aiProvider.providerId || (aiProvider.isMock ? 'mock' : 'openai')) && row.model === aiProvider.model && row.dimensions === aiProvider.dimensions && row.modelVersion === (aiProvider.version || '') && row.embedding.length === row.dimensions * 4);
+  const compatible = rows.filter((row) => (!documentId || row.documentId === documentId) && row.provider === (aiProvider.providerId || (aiProvider.isMock ? 'mock' : 'openai')) && row.model === aiProvider.model && row.dimensions === aiProvider.dimensions && row.modelVersion === (aiProvider.version || '') && row.embedding.length === row.dimensions * 4);
   if (!compatible.length) throw new StudentError('aiIndexMismatch', 409);
   const [queryVec] = await aiProvider.embed([query.trim()], { signal });
   if (!queryVec || queryVec.length !== aiProvider.dimensions || !queryVec.every(Number.isFinite)) throw new StudentError('aiEmbeddingMismatch', 502);

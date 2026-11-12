@@ -137,14 +137,15 @@ export async function runEvaluation(options) {
   const runtime = loopback(options.runtimeUrl), ollamaURL = loopback(options.ollamaUrl);
   const config = await get(runtime, '/api/student/ai');
   if (config.defaultProvider !== 'ollama' || config.isMock || config.embedding.provider !== 'ollama') throw new Error('This evaluator requires real local Ollama configuration');
-  const chatModel = config.chatProviders.find((p) => p.id === 'ollama')?.model;
+  const chatModel = options.chatModel || config.chatProviders.find((p) => p.id === 'ollama')?.model;
+  if (typeof chatModel !== 'string' || !/^[a-zA-Z0-9_.:-]{1,120}$/.test(chatModel) || /cloud/i.test(chatModel)) throw new Error('Evaluation requires an explicit local model');
   const embeddingModel = config.embedding.model.replace(/^ollama\//, '');
   const versions = [...new Set(source.indexes.filter((i) => i.provider === 'ollama' && i.model === config.embedding.model && i.dimensions === config.embedding.dimensions).map((i) => i.modelVersion))];
   if (versions.length !== 1) throw new Error('Select an unambiguous compatible embedding index');
   const manifest = {
     schemaVersion: 1, commit: git('rev-parse', 'HEAD'), branch: git('branch', '--show-current'), productionDigest: productionDigest(), suiteHash: hash(fs.readFileSync(options.suite)),
     sourceDocuments: source.documents.map(({ id, sha256, status }) => ({ id, sha256, status })), config,
-    runner: { contextSize: Number(options.contextSize), timeoutMs: Number(options.timeoutMs), embeddingVersion: versions[0] },
+    runner: { chatModel, contextSize: Number(options.contextSize), timeoutMs: Number(options.timeoutMs), embeddingVersion: versions[0] },
     ollamaVersion: await get(ollamaURL, '/api/version'), modelTags: await get(ollamaURL, '/api/tags'), initialLoadedModels: await get(ollamaURL, '/api/ps'),
     hardware: { platform: process.platform, arch: process.arch, cpu: os.cpus()[0]?.model, ramBytes: os.totalmem(), logicalCPUs: os.cpus().length },
     notes: ['Source DB opened read-only; inference uses a separate backup.', 'Independent cases start with empty conversations and memories in the evaluation copy.', 'No model unloading or configuration changes; residency is sampled before each actual call.', 'Retrieval diagnostics replay the captured query vector without an extra embedding call.', 'UI rendering is not covered by this HTTP measurement.'],

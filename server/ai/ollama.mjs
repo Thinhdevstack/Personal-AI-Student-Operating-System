@@ -22,6 +22,7 @@ export function createOllama(options = {}) {
   const timeoutMs = integer(options.timeoutMs ?? process.env.OLLAMA_TIMEOUT_MS, 180000, 10, 240000);
   const numCtx = integer(process.env.OLLAMA_CONTEXT_SIZE, 8192, 2048, 16384);
   let busy = false;
+  let lastLocalInferenceAt = null;
   const waiters = [];
   async function request(endpoint, body, signal, timeout = timeoutMs) {
     const deadline = AbortSignal.timeout(timeout);
@@ -159,6 +160,7 @@ export function createOllama(options = {}) {
           evalTokensPerSec: evalNs > 0 ? Number(((evalCount / evalNs) * 1e9).toFixed(1)) : 0,
           promptTokensPerSec: promptNs > 0 ? Number(((promptCount / promptNs) * 1e9).toFixed(1)) : 0,
         };
+        lastLocalInferenceAt = new Date().toISOString();
         return { ...answer, model: chatModel, isMock: false, metrics };
       }, signal);
     },
@@ -269,6 +271,7 @@ export function createOllama(options = {}) {
         const has = (name) => models.some((m) => m.name === name || m.name === name + ':latest');
         return {
           connected: true,
+          lastLocalInferenceAt,
           chatReady: has(chatModel),
           embeddingReady: has(embedModel),
           chatModel,

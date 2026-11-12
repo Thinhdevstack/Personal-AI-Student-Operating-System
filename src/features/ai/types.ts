@@ -29,6 +29,7 @@ export interface AISettings {
 }
 
 export interface LocalAIStatus {
+  lastLocalInferenceAt?: string | null;
   connected: boolean; chatReady: boolean; embeddingReady: boolean; busy?: boolean;
   chatModel?: string; embeddingModel?: string; error?: string; models: { name: string; size: number }[];
   cloudStatus?: {

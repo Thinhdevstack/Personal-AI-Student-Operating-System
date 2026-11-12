@@ -1,0 +1,33 @@
+import { test, expect } from '@playwright/test';
+
+test('assistant conversations persist, rename, confirm deletion and display on mobile (fixture inference)', async ({ page }) => {
+  const errors: string[] = [];
+  page.on('pageerror', (error) => errors.push(error.message));
+  await page.goto('/student?lang=en');
+  await page.getByRole('button', { name: 'Study assistant', exact: true }).click();
+  const panel = page.locator('.course-chat');
+  await panel.getByRole('textbox', { name: 'Conversation title' }).fill('Daily goals');
+  await panel.getByRole('button', { name: 'New conversation', exact: true }).click();
+  await expect(panel.getByRole('button', { name: 'Rename', exact: true })).toBeVisible();
+  await panel.getByRole('textbox', { name: 'Your question' }).fill('Explain a learning approach');
+  await panel.getByRole('button', { name: 'Send', exact: true }).click();
+  await expect(panel.getByRole('textbox', { name: 'Your question' })).toHaveValue('');
+  await expect(panel.locator('.student-chat-turn')).toHaveCount(1);
+  await expect(panel.locator('.student-chat-turn')).toContainText('No materials');
+  await expect(panel.locator('.student-chat-turn .student-chat-text')).toBeVisible();
+  await panel.getByRole('textbox', { name: 'Conversation title' }).fill('Renamed goals');
+  await panel.getByRole('button', { name: 'Rename', exact: true }).click();
+  await expect(panel.getByRole('combobox', { name: 'Conversation', exact: true }).locator('option:checked')).toHaveText('Renamed goals');
+  await page.reload();
+  await page.getByRole('button', { name: 'Study assistant', exact: true }).click();
+  const select = panel.getByRole('combobox', { name: 'Conversation', exact: true });
+  await select.selectOption({ label: 'Renamed goals' });
+  await expect(panel.locator('.student-chat-turn')).toHaveCount(1);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(panel.getByRole('textbox', { name: 'Your question' })).toBeVisible();
+  await panel.screenshot({ path: test.info().outputPath('assistant-mobile.png') });
+  page.once('dialog', (dialog) => dialog.accept());
+  await panel.getByRole('button', { name: 'Delete conversation', exact: true }).click();
+  await expect(select.locator('option')).toHaveCount(1);
+  expect(errors).toEqual([]);
+});

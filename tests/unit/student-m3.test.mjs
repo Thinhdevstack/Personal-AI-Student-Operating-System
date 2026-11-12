@@ -127,10 +127,11 @@ test('context budgets, follow-up retrieval and citations only use supplied evide
   assert.equal(retrievalQuestion('Explain WSClock', [{ role: 'user', content: 'Explain LRU' }]), 'Explain WSClock');
   assert.equal(retrievalQuestion('Giải thích WSClock', [{ role: 'user', content: 'Giải thích LRU' }]), 'Giải thích WSClock');
   assert.match(retrievalQuestion('Cho ví dụ', [{ role: 'user', content: 'Giải thích LRU' }]), /LRU/);
-  const result = validateTutorAnswer({ answer: 'Explanation [S999]', basis: 'materials', sourceIds: ['S1', 'S999'] }, context.sources);
+  assert.throws(() => validateTutorAnswer({ answer: 'Explanation [S999]', basis: 'materials', sourceIds: ['S1', 'S999'] }, context.sources), /aiInvalidCitation/);
+  const result = validateTutorAnswer({ answer: 'Explanation', basis: 'materials', sourceIds: ['S1'] }, context.sources);
   assert.equal(result.sources.length, 1); assert.equal(result.sources[0].chunkId, 'chunk0'); assert.ok(!result.answer.includes('S999'));
   assert.throws(() => validateTutorAnswer({ answer: 'fake', basis: 'materials', sourceIds: ['S999'] }, context.sources), /aiInvalidCitation/);
-  assert.equal(validateTutorAnswer({ answer: 'General knowledge', basis: 'general', sourceIds: ['S1'] }, context.sources).sources.length, 0);
+  assert.throws(() => validateTutorAnswer({ answer: 'General knowledge', basis: 'general', sourceIds: ['S1'] }, context.sources), /aiInvalidCitation/);
 });
 
 test('named algorithms in OCR outrank semantically similar hardware clocks without crossing courses', async (t) => {

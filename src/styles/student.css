@@ -97,6 +97,11 @@
 .student-material-actions button { font-size: 11px; padding: 4px 8px; }
 
 .course-chat { min-width: 0; }
+.study-assistant > label, .study-assistant form > label { display: flex; flex-direction: column; gap: 8px; margin: 12px 0; }
+.study-assistant > label > input { box-sizing: border-box; width: 100%; padding: 10px; border: 1px solid var(--line-2); border-radius: 7px; background: var(--bg); color: var(--ink); }
+.study-assistant > button { margin: 4px 8px 8px 0; }
+.study-assistant fieldset { min-width: 0; margin: 12px 0; border: 1px solid var(--line-2); }
+.study-assistant .student-chat-text { white-space: pre-wrap; overflow-wrap: anywhere; }
 .student-provider-controls { display: grid; gap: 8px; margin: 16px 0; }
 .student-provider-controls select { max-width: 460px; }
 .student-provider-controls small { color: var(--muted); font-size: 11px; overflow-wrap: anywhere; }

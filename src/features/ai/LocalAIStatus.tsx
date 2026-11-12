@@ -64,6 +64,9 @@ export function LocalStatusView({
   return <div className="student-local-status" role="status">
     <strong>{t(!status ? 'checking' : !status.connected ? 'disconnected' : status.chatReady && status.embeddingReady ? 'connected' : 'missingModel')}</strong>
     {status?.chatModel && <small>{status.chatModel} · {status.embeddingModel}</small>}
+    {status?.connected && status.chatReady && status.embeddingReady && <small>{status.lastLocalInferenceAt
+      ? (lang === 'vi' ? 'Server đã nhận phản hồi model trong phiên này; chưa bảo đảm nội dung đúng.' : 'This server session has received a model response; correctness is not guaranteed.')
+      : (lang === 'vi' ? 'Model đã cài; chưa có lượt trả lời thành công trong phiên server này.' : 'Models are installed; no successful inference in this server session yet.')}</small>}
     {status && (!status.connected || !status.chatReady || !status.embeddingReady) && <p>{t('setupHint')}</p>}
     <button type="button" onClick={refresh}>{t('refresh')}</button>
   </div>;

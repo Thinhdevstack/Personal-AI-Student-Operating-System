@@ -85,6 +85,9 @@ export function resolveSourceTarget({ db, courseId, message, explicitTarget, lan
   }
 
   if (!targetDoc || !targetPage) {
+    if (!targetDoc && targetPage && docs.length > 1) {
+      return { ambiguous: true, explanation: lang === 'vi' ? 'Hãy chọn một tài liệu PDF để xác định trang cần đọc.' : 'Select a PDF to identify the requested page.' };
+    }
     if (targetDoc) {
       return { targetDoc, targetPage: null };
     }

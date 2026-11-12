@@ -18,7 +18,16 @@ export function openStudentDatabase(dir) {
       new URL('./migrations/006-local-tutor.sql', import.meta.url),
       new URL('./migrations/007-document-coverage.sql', import.meta.url),
       new URL('./migrations/008-ollama-cloud.sql', import.meta.url),
+      new URL('./migrations/009-study-assistant.sql', import.meta.url),
     ];
+    // A migration on an existing database is preceded by a consistent SQLite snapshot.
+    const applied = db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get().version || 0;
+    if (applied > 0 && applied < migrations.length) {
+      const backupDir = path.join(dir, 'backups');
+      fs.mkdirSync(backupDir, { recursive: true });
+      const backup = path.join(backupDir, `before-migration-${applied + 1}-${Date.now()}-${process.pid}.sqlite`);
+      db.exec("VACUUM INTO '" + backup.replaceAll("'", "''") + "'");
+    }
     db.transaction(() => {
       for (const [index, file] of migrations.entries()) {
         const version = index + 1;
