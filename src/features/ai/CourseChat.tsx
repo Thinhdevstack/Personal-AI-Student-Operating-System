@@ -9,6 +9,7 @@ import type { ChatRequest } from './api';
 import type { ChatHistory, ChatTurn, ChatMessage, ChatProviderId, AISettings } from './types';
 import { MemoryEditor } from './MemoryWorkspace';
 import { LocalStatusView, useLocalStatus } from './LocalAIStatus';
+import StudyLogDraftModal, { DraftLogData } from '@/features/study/StudyLogDraftModal';
 
 type CloudState = 'not_configured' | 'unverified' | 'verifying' | 'connected' | 'auth_required' | 'rate_limited' | 'model_missing' | 'disconnected' | 'error';
 
@@ -51,6 +52,19 @@ export default function CourseChat({
   const recoveryAttempts = useRef(0);
   const bottom = useRef<HTMLDivElement>(null);
   const pending = history?.turns.some((turn) => turn.status === 'pending');
+  const [draftLog, setDraftLog] = useState<DraftLogData | null>(null);
+
+  function openDraftLog(turn: ChatTurn, item: ChatMessage) {
+    const userMsg = turn.messages.find((m) => m.role === 'user');
+    setDraftLog({
+      courseId,
+      title: userMsg ? userMsg.content.slice(0, 100) : (lang === 'vi' ? 'Hỏi đáp môn học' : 'Course Q&A'),
+      learnedContent: item.content,
+      activityType: 'review',
+      sourceTurnId: turn.id,
+      sourceConversationId: history?.conversationId || undefined,
+    });
+  }
 
   async function handleVerifyCloud() {
     setLocalCloudOverride('verifying');
@@ -375,6 +389,7 @@ export default function CourseChat({
             {!!item.sources.length && <div className="student-chat-sources"><strong>{t('tutor.sources')}</strong><ul>{item.sources.map((source) => <li key={source.sourceId}><a href={apiUrl(`documents/${source.documentId}/file`)}>{source.documentName} · {t('page')} {source.pageNumber}</a><small>{source.sourceId} · {t('tutor.chunk')} {source.chunkIndex + 1}</small></li>)}</ul></div>}
             {!!item.memories?.length && <details className="student-chat-memories"><summary>{t('memory.shared')} ({item.memories.length})</summary><p>{t('memory.snapshotHint')}</p><ul>{item.memories.map((memory) => <li key={memory.id}><small>{t(memory.scope === 'global' ? 'memory.global' : 'memory.course')}</small><p className="student-memory-content">{memory.content}</p></li>)}</ul></details>}
             {turn.status === 'completed' && <button type="button" className="student-save-memory" onClick={() => { setMemorySaved(false); setSavingMemory(item); }}>{t('memory.saveFromChat')}</button>}
+            {turn.status === 'completed' && item.role === 'assistant' && <button type="button" className="student-save-log" onClick={() => openDraftLog(turn, item)}>📝 {lang === 'vi' ? 'Ghi vào nhật ký' : 'Save to diary'}</button>}
           </article>)}
           {turn.status === 'pending' && <p role="status">{t(turn.phase === 'library.search' ? 'local.reading' : 'tutor.responding')}</p>}
           {turn.status === 'failed' && <div className="student-chat-failed"><p>{t(`errors.${turn.errorCode || 'aiUnavailable'}`)}</p>{index === history.turns.length - 1 && <button type="button" disabled={working || pending || (turn.mode === 'materials' && !hasReadyMaterials)} onClick={() => retry(turn)}>{t('tutor.retry')}</button>}</div>}
@@ -409,5 +424,15 @@ export default function CourseChat({
       </form>
     </>}
     {savingMemory && <MemoryEditor lang={lang} target={{ scope: 'course', courseId }} initialContent={savingMemory.content} source={{ sourceMessageId: savingMemory.id, sourceCourseId: courseId }} allowGlobal onClose={() => setSavingMemory(null)} onSaved={() => { setMemorySaved(true); onMemoryChange?.(); }} />}
+    {draftLog && (
+      <StudyLogDraftModal
+        draft={draftLog}
+        courses={[{ id: courseId, name: courseId }]}
+        todayDate={new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())}
+        lang={lang}
+        onSaved={() => setDraftLog(null)}
+        onClose={() => setDraftLog(null)}
+      />
+    )}
   </div>;
 }

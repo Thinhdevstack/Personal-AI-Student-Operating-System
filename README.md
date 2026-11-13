@@ -54,6 +54,10 @@ creating semesters, courses or uploading PDFs.
 - To back up, stop the server and copy the entire `data/student/` directory. Restore that directory with the server stopped.
 
 The [repository analysis and implementation plan](docs/STUDENT-OS-PLAN.md) explains the architecture, planned files and subsequent milestones.
+- [P1 — Local AI and Evaluation](docs/P1-LOCAL-AI.md)
+- [P2 — Study Assistant and Scoped Knowledge](docs/P2-STUDY-ASSISTANT.md)
+- [P3 — Study Logs and 12-Month Heatmap](docs/P3-STUDY-LOGS.md)
+- [P4 — Daily Study Planning and In-App Reminders](docs/P4-STUDY-PLANNING.md)
 
 Copy `.env.example` to `.env.local`, fill the keys you want to use, and restart the server. Keys remain server-side: `OPENAI_API_KEY` for OpenAI/ChatGPT API, `GEMINI_API_KEY` for Google Gemini, `DEEPSEEK_API_KEY` for DeepSeek. The Course Chat **AI provider** selector chooses the provider per question; `AI_CHAT_PROVIDER=openai` sets the default. Each answer records its provider/model, and retries keep the original provider. Missing keys are shown in the selector and disable sending; no automatic fallback calls another provider. Changing a key or model requires a server restart.
 

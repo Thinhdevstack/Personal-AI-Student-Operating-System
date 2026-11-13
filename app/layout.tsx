@@ -62,7 +62,7 @@ export default async function RootLayout({ children }: { children: ReactNode }) 
   return (
     // data-os: the machine's platform, for the words "Mac" / "PC" / "computer" (the online demo is a pretend Mac)
     <html lang={await getLang()} data-student-local={await getStudentLocal() ? '1' : undefined} data-student-demo={await getStudentDemo() ? '1' : undefined} data-os={process.env.OFFICE_STATIC === '1' ? 'darwin' : process.platform}>
-      <body>
+      <body suppressHydrationWarning>
         {children}
         {/* QR codes for "open on your phone" (qrcode.js, MIT), kept local so the office works offline */}
         <Script src={`${process.env.NEXT_PUBLIC_BASE_PATH || ''}/assets/vendor/qrcode.min.js`} strategy="afterInteractive" />

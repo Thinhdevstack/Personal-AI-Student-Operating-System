@@ -10,6 +10,7 @@ import { createCourseChat } from '../ai/chat.mjs';
 import { createStudyAssistant } from '../ai/assistant.mjs';
 import { createMemoryService } from '../ai/memory.mjs';
 import { createStudentActivity } from './activity.mjs';
+import { createStudyService } from './study.mjs';
 
 function text(value, max, required = false) {
   if (value === undefined && !required) return '';
@@ -51,6 +52,7 @@ export function createStudentService(dir, options = {}) {
   const activity = options.activity || createStudentActivity();
   const chat = createCourseChat({ db, aiProvider, memory, activity, aiRegistry });
   const assistant = createStudyAssistant({ db, aiRegistry, memory });
+  const study = createStudyService({ db });
 
   function semester(id) {
     const row = db.prepare('SELECT * FROM semesters WHERE id = ?').get(id);
@@ -96,7 +98,7 @@ export function createStudentService(dir, options = {}) {
     snapshot() {
       return {
         semesters: db.prepare('SELECT * FROM semesters ORDER BY createdAt DESC, id').all(),
-        courses: db.prepare('SELECT c.*, (EXISTS(SELECT 1 FROM documents d WHERE d.courseId=c.id) OR EXISTS(SELECT 1 FROM chat_conversations h WHERE h.courseId=c.id) OR EXISTS(SELECT 1 FROM memories m WHERE m.courseId=c.id OR m.sourceCourseId=c.id)) AS hasData FROM courses c ORDER BY name, id').all(),
+        courses: db.prepare('SELECT c.*, (EXISTS(SELECT 1 FROM documents d WHERE d.courseId=c.id) OR EXISTS(SELECT 1 FROM chat_conversations h WHERE h.courseId=c.id) OR EXISTS(SELECT 1 FROM memories m WHERE m.courseId=c.id OR m.sourceCourseId=c.id) OR EXISTS(SELECT 1 FROM study_logs l WHERE l.courseId=c.id) OR EXISTS(SELECT 1 FROM study_tasks t WHERE t.courseId=c.id)) AS hasData FROM courses c ORDER BY name, id').all(),
         recentMaterials: db.prepare(`
           SELECT d.*,
                  (SELECT COUNT(*) FROM document_chunks WHERE documentId = d.id) AS chunkCount
@@ -154,7 +156,7 @@ export function createStudentService(dir, options = {}) {
     deleteCourse(id) {
       db.transaction(() => {
         course(id);
-        if (db.prepare('SELECT id FROM documents WHERE courseId=? LIMIT 1').get(id) || db.prepare('SELECT id FROM chat_conversations WHERE courseId=?').get(id) || db.prepare('SELECT id FROM memories WHERE courseId=? OR sourceCourseId=? LIMIT 1').get(id, id)) throw new StudentError('courseNotEmpty', 409);
+        if (db.prepare('SELECT id FROM documents WHERE courseId=? LIMIT 1').get(id) || db.prepare('SELECT id FROM chat_conversations WHERE courseId=?').get(id) || db.prepare('SELECT id FROM memories WHERE courseId=? OR sourceCourseId=? LIMIT 1').get(id, id) || db.prepare('SELECT id FROM study_logs WHERE courseId=? LIMIT 1').get(id) || db.prepare('SELECT id FROM study_tasks WHERE courseId=? LIMIT 1').get(id)) throw new StudentError('courseNotEmpty', 409);
         db.prepare('DELETE FROM courses WHERE id=?').run(id);
       })();
     },
@@ -384,5 +386,21 @@ export function createStudentService(dir, options = {}) {
         ORDER BY pageNumber, chunkIndex
       `).all(docId);
     },
+
+    studyLogs: study.listLogs,
+    studyLog: study.getLog,
+    createStudyLog: study.createLog,
+    updateStudyLog: study.updateLog,
+    deleteStudyLog: study.deleteLog,
+    studySummary: study.getSummary,
+    studyTasks: study.listTasks,
+    studyTask: study.getTask,
+    createStudyTask: study.createTask,
+    updateStudyTask: study.updateTask,
+    deleteStudyTask: study.deleteTask,
+    completeStudyTask: study.completeTask,
+    reopenStudyTask: study.reopenTask,
+    updateStudyReminder: study.updateReminder,
+    studySuggestions: study.getSuggestions,
   };
 }

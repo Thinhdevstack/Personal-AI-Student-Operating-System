@@ -9,6 +9,8 @@ import CourseChat from '@/features/ai/CourseChat';
 import StudyAssistant from '@/features/ai/StudyAssistant';
 import MemoryWorkspace from '@/features/ai/MemoryWorkspace';
 import StudentDemoPanel from './StudentDemoPanel';
+import StudyLogWorkspace from '@/features/study/StudyLogWorkspace';
+import StudyTaskWorkspace from '@/features/study/StudyTaskWorkspace';
 
 type Tab = 'overview' | 'materials' | 'chat' | 'memory' | 'progress';
 type Editor = { kind: 'semester' | 'course'; action: 'create' | 'rename' | 'archive' | 'delete'; id?: string; name?: string };
@@ -20,7 +22,7 @@ export default function StudentWorkspace({ lang, studentDemo = false, studentLoc
   const [data, setData] = useState<AcademicSnapshot | null>(null);
   const [semesterId, setSemesterId] = useState('');
   const [courseId, setCourseId] = useState('');
-  const [view, setView] = useState<'today' | 'academic' | 'memory' | 'assistant'>('today');
+  const [view, setView] = useState<'today' | 'academic' | 'memory' | 'assistant' | 'logs'>('today');
   const [tab, setTab] = useState<Tab>('overview');
   const [showArchived, setShowArchived] = useState(false);
   const [library, setLibrary] = useState<{ courseId: string; items: Material[] } | null>(null);
@@ -72,6 +74,7 @@ export default function StudentWorkspace({ lang, studentDemo = false, studentLoc
       }
       if (params.get('view') === 'memory') setView('memory');
       if (params.get('view') === 'assistant') setView('assistant');
+      if (params.get('view') === 'logs') setView('logs');
       const officeParams = new URLSearchParams();
       for (const key of ['k', 'lang']) if (params.get(key)) officeParams.set(key, params.get(key)!);
       setOfficeHref(`/${officeParams.size ? `?${officeParams}` : ''}`);
@@ -119,10 +122,10 @@ export default function StudentWorkspace({ lang, studentDemo = false, studentLoc
     setSearchQuery(''); setSearchResults(null);
     const url = new URL(window.location.href); url.searchParams.delete('course'); url.searchParams.delete('view'); url.searchParams.delete('tab'); window.history.replaceState(null, '', url);
   }
-  function chooseView(next: 'today' | 'academic' | 'memory' | 'assistant') {
+  function chooseView(next: 'today' | 'academic' | 'memory' | 'assistant' | 'logs') {
     setView(next);
     const url = new URL(window.location.href);
-    if (next === 'memory' || next === 'assistant') url.searchParams.set('view', next); else url.searchParams.delete('view');
+    if (next === 'memory' || next === 'assistant' || next === 'logs') url.searchParams.set('view', next); else url.searchParams.delete('view');
     window.history.replaceState(null, '', url);
   }
   function refreshSnapshot() { void api.snapshot().then(setData).catch(() => setError('network')); }
@@ -295,6 +298,7 @@ export default function StudentWorkspace({ lang, studentDemo = false, studentLoc
       <nav aria-label={t('title')}>
         <button aria-current={view === 'today' ? 'page' : undefined} onClick={() => chooseView('today')}>{t('today')}</button>
         <button aria-current={view === 'assistant' ? 'page' : undefined} onClick={() => chooseView('assistant')}>{lang === 'vi' ? 'Trợ lý học tập' : 'Study assistant'}</button>
+        <button aria-current={view === 'logs' ? 'page' : undefined} onClick={() => chooseView('logs')}>{lang === 'vi' ? 'Nhật ký học tập' : 'Study diary'}</button>
         <button aria-current={view === 'academic' ? 'page' : undefined} onClick={() => chooseView('academic')}>{t('academic')}</button>
         <button aria-current={view === 'memory' ? 'page' : undefined} onClick={() => chooseView('memory')}>{t('memory.global')}</button>
         <a href={officeHref}>{t('projects')}</a>
@@ -315,13 +319,14 @@ export default function StudentWorkspace({ lang, studentDemo = false, studentLoc
       <div className="student-course-links">{courses.map((item) => <button key={item.id} aria-current={view === 'academic' && courseId === item.id ? 'page' : undefined} onClick={() => chooseCourse(item)}><span>{item.name}</span><small>{item.code || t(`status.${item.status}`)}</small></button>)}</div>
     </aside>
     <main className="student-main" aria-busy={busy}>
-      <header className="student-page-heading"><div><p className="student-eyebrow">{t('title')}</p><h1>{view === 'assistant' ? (lang === 'vi' ? 'Trợ lý học tập' : 'Study assistant') : view === 'memory' ? t('memory.global') : view === 'today' ? t('today') : course?.name || semester?.name || t('academic')}</h1><p>{view === 'memory' ? t('memory.globalHint') : view === 'today' ? t('subtitle') : course?.code || semester?.academicYear}</p></div><a href={officeHref} target="_blank" rel="noopener" title={t('officeActivity.open')}>{t('office')} ↗</a></header>
+      <header className="student-page-heading"><div><p className="student-eyebrow">{t('title')}</p><h1>{view === 'assistant' ? (lang === 'vi' ? 'Trợ lý học tập' : 'Study assistant') : view === 'logs' ? (lang === 'vi' ? 'Nhật ký học tập' : 'Study diary') : view === 'memory' ? t('memory.global') : view === 'today' ? t('today') : course?.name || semester?.name || t('academic')}</h1><p>{view === 'logs' ? (lang === 'vi' ? 'Theo dõi tiến độ, ghi chép và biểu đồ học tập 12 tháng' : 'Track progress, notes and 12-month study heatmap') : view === 'memory' ? t('memory.globalHint') : view === 'today' ? t('subtitle') : course?.code || semester?.academicYear}</p></div><a href={officeHref} target="_blank" rel="noopener" title={t('officeActivity.open')}>{t('office')} ↗</a></header>
       {error && <div role="alert" className="student-error">{t(`errors.${error}`)} <button onClick={() => window.location.reload()}>{t('retry')}</button></div>}
       <div role="status" className="student-notice">{busy ? t('working') : notice ? t(notice) : ''}</div>
       {(studentDemo || studentLocal) && <StudentDemoPanel lang={lang} local={studentLocal} onSeed={(result) => {
         setData(result); setSemesterId((value) => value || result.semesters.find((item) => item.isActive)?.id || result.semesters[0]?.id || ''); setRevision((value) => value + 1);
       }} />}
-      {!data ? <p>{t('loading')}</p> : view === 'assistant' ? <StudyAssistant lang={lang} courses={data.courses} /> : view === 'memory' ? <section className="student-panel"><MemoryWorkspace lang={lang} target={{ scope: 'global' }} /></section> : view === 'today' ? <>
+      {!data ? <p>{t('loading')}</p> : view === 'assistant' ? <StudyAssistant lang={lang} courses={data.courses} /> : view === 'memory' ? <section className="student-panel"><MemoryWorkspace lang={lang} target={{ scope: 'global' }} /></section> : view === 'logs' ? <StudyLogWorkspace lang={lang} courses={data.courses} /> : view === 'today' ? <>
+        <StudyTaskWorkspace lang={lang} courses={data.courses} />
         <section className="student-hero"><p className="student-eyebrow">{t('activeSemester')}</p><h2>{current?.name || t('noActive')}</h2><p>{current?.academicYear || t('todayHint')}</p>
           <button className="student-primary" onClick={() => current ? chooseSemester(current.id) : setEditor({ kind: 'semester', action: 'create' })}>{current ? t('academic') : t('createSemester')} →</button>
         </section>
@@ -398,7 +403,9 @@ export default function StudentWorkspace({ lang, studentDemo = false, studentLoc
             </>}
             {tab === 'chat' && <CourseChat key={course.id} courseId={course.id} lang={lang} hasReadyMaterials={!!courseMaterials?.some((item) => item.status === 'ready')} materials={courseMaterials || []} onMemoryChange={refreshSnapshot} />}
             {tab === 'memory' && <MemoryWorkspace key={course.id} lang={lang} target={{ scope: 'course', courseId: course.id }} onChange={refreshSnapshot} />}
-            {tab === 'progress' && <p>{t('progressPending')}</p>}
+            {tab === 'progress' && (
+              <StudyLogWorkspace key={course.id} lang={lang} courses={data.courses} initialCourseId={course.id} />
+            )}
           </section>
         </>}
       </>}

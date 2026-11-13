@@ -146,3 +146,118 @@
 .student-dropzone { padding: 24px; margin: 14px 0; border: 2px dashed var(--line-2); border-radius: 12px; text-align: center; color: var(--muted); }
 .student-dropzone.is-dragging { border-color: var(--accent-hi); background: var(--accent-soft); color: var(--ink); }
 .student-index-hint { display: block; color: var(--muted); }
+
+/* --- P3: Study Heatmap & Logs Styles --- */
+.student-heatmap-card { padding: 20px; border-radius: 12px; background: var(--card); border: 1px solid var(--line-2); margin-top: 14px; }
+.student-heatmap-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; margin-bottom: 16px; }
+.student-heatmap-stats { display: flex; gap: 24px; flex-wrap: wrap; }
+.student-stat-item { display: flex; flex-direction: column; }
+.student-stat-val { font-size: 20px; font-weight: 700; color: var(--ink); font-family: var(--mono); }
+.student-stat-lbl { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.05em; }
+.student-heatmap-filter-pill { display: inline-flex; align-items: center; gap: 8px; padding: 4px 10px; border-radius: 20px; background: var(--accent-soft); color: var(--accent-hi); font-size: 12px; }
+.student-filter-clear { background: transparent; border: none; padding: 0 4px; cursor: pointer; color: inherit; font-size: 12px; }
+.student-heatmap-wrapper { overflow-x: auto; padding-bottom: 8px; }
+.student-heatmap-grid-container { display: flex; flex-direction: column; min-width: 760px; }
+.student-heatmap-months { display: flex; height: 16px; margin-bottom: 6px; position: relative; }
+.student-heatmap-months-track { position: relative; flex: 1; }
+.student-heatmap-month-label { position: absolute; font-size: 10px; color: var(--muted); white-space: nowrap; }
+.student-heatmap-body { display: flex; gap: 6px; }
+.student-heatmap-days-col { display: flex; flex-direction: column; width: 22px; flex-shrink: 0; }
+.student-day-label { font-size: 10px; color: var(--muted); height: 11px; line-height: 11px; }
+.student-heatmap-weeks { display: flex; gap: 3px; }
+.student-heatmap-col { display: flex; flex-direction: column; gap: 3px; }
+.student-heat-cell { width: 11px; height: 11px; border-radius: 2px; border: none; padding: 0; cursor: pointer; transition: transform 0.1s ease; }
+.student-heat-cell:hover { transform: scale(1.3); outline: 1px solid var(--ink); z-index: 2; }
+.student-heat-empty { background: transparent !important; cursor: default; }
+.student-heat-empty:hover { transform: none; outline: none; }
+.student-heat-selected { outline: 2px solid var(--accent-hi) !important; outline-offset: 1px; }
+.student-heatmap-tooltip { background: #1f2937; color: #f9fafb; padding: 6px 10px; border-radius: 6px; font-size: 11px; line-height: 1.4; box-shadow: 0 4px 14px rgba(0,0,0,0.3); pointer-events: none; border: 1px solid #374151; }
+.student-heatmap-legend { display: flex; align-items: center; justify-content: flex-end; gap: 4px; margin-top: 14px; font-size: 11px; color: var(--muted); }
+.student-legend-cell { cursor: default; width: 10px; height: 10px; }
+.student-legend-text { margin: 0 4px; }
+
+/* Study Logs Workspace */
+.student-logs-filters { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 20px; padding: 14px; border-radius: 10px; background: var(--card); border: 1px solid var(--line); }
+.student-logs-filters label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink); }
+.student-logs-filters select { width: auto; padding: 6px 10px; font-size: 13px; }
+.student-active-filter-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 16px; background: var(--accent-soft); color: var(--accent-hi); font-size: 12px; }
+.student-active-filter-badge button { background: transparent; border: none; cursor: pointer; color: inherit; padding: 0; }
+.student-filter-reset { font-size: 12px; padding: 5px 10px; }
+.student-log-cards { display: grid; gap: 14px; margin-top: 16px; }
+.student-log-card { padding: 18px; border-radius: 12px; background: var(--card); border: 1px solid var(--line-2); }
+.student-log-card-header { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
+.student-log-card-meta { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 12px; }
+.student-log-card-actions { display: flex; gap: 6px; }
+.student-log-title { font-size: 17px; font-weight: 600; margin: 4px 0 10px; color: var(--ink); }
+.student-log-section { font-size: 13px; line-height: 1.6; margin-top: 8px; color: var(--ink); }
+.student-log-section strong { display: block; font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--muted); margin-bottom: 2px; }
+.student-log-difficulties { padding: 8px 12px; border-radius: 6px; background: rgba(245, 158, 11, 0.08); border-left: 3px solid #f59e0b; }
+.student-log-nextsteps { padding: 8px 12px; border-radius: 6px; background: rgba(59, 130, 246, 0.08); border-left: 3px solid #3b82f6; }
+
+/* Badges */
+.student-activity-badge, .student-priority-badge { display: inline-block; padding: 2px 8px; border-radius: 12px; font-size: 11px; font-weight: 500; }
+.student-badge-blue { background: rgba(59, 130, 246, 0.15); color: #2563eb; }
+.student-badge-purple { background: rgba(147, 51, 234, 0.15); color: #9333ea; }
+.student-badge-amber { background: rgba(245, 158, 11, 0.15); color: #d97706; }
+.student-badge-emerald { background: rgba(16, 185, 129, 0.15); color: #059669; }
+.student-badge-gray { background: rgba(107, 114, 128, 0.15); color: #4b5563; }
+.student-badge-danger { background: rgba(239, 68, 68, 0.15); color: #dc2626; }
+
+/* Buttons */
+.student-btn-sm { padding: 5px 10px !important; font-size: 12px !important; border-radius: 6px !important; }
+.student-btn-subtle { background: transparent !important; border-color: transparent !important; padding: 6px 8px !important; cursor: pointer; }
+.student-btn-subtle:hover { background: var(--card-2) !important; border-color: var(--line) !important; }
+.student-btn-danger:hover { background: rgba(239, 68, 68, 0.15) !important; color: #dc2626 !important; border-color: rgba(239, 68, 68, 0.3) !important; }
+
+/* --- P4: Study Tasks & Reminders Styles --- */
+.student-reminder-banner { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 12px 18px; border-radius: 10px; background: linear-gradient(90deg, rgba(245, 158, 11, 0.15), rgba(245, 158, 11, 0.05)); border: 1px solid #f59e0b; margin-bottom: 20px; }
+.student-reminder-content { display: flex; align-items: center; gap: 12px; }
+.student-reminder-icon { font-size: 20px; }
+.student-reminder-text { font-size: 13px; color: var(--ink); }
+.student-reminder-actions { display: flex; gap: 8px; }
+
+/* Suggestions */
+.student-suggestions-panel { padding: 14px 18px; border-radius: 10px; background: var(--card); border: 1px dashed var(--accent-line); margin-bottom: 20px; }
+.student-suggestions-header h3 { font-size: 14px; margin: 0 0 10px; color: var(--ink); }
+.student-suggestions-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.student-suggestion-chip { display: inline-flex; align-items: center; gap: 8px; padding: 5px 10px; border-radius: 8px; background: var(--side); border: 1px solid var(--line); font-size: 12px; }
+.student-sugg-title { color: var(--ink); font-weight: 500; }
+.student-sugg-course { color: var(--muted); font-size: 11px; }
+
+/* Tasks workspace */
+.student-tasks-grid { display: grid; gap: 24px; margin-top: 16px; }
+.student-task-section { padding: 20px; border-radius: 12px; background: var(--card); border: 1px solid var(--line); }
+.student-task-section-overdue { border-color: rgba(239, 68, 68, 0.4); background: rgba(239, 68, 68, 0.03); }
+.student-task-section-title { font-size: 16px; font-weight: 600; margin: 0 0 14px; display: flex; align-items: center; justify-content: space-between; color: var(--ink); }
+.student-collapsible-title { cursor: pointer; user-select: none; }
+.student-count-pill { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: var(--side); color: var(--muted); border: 1px solid var(--line); }
+.student-task-list { display: grid; gap: 10px; }
+.student-task-card { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 12px 16px; border-radius: 8px; background: var(--side); border: 1px solid var(--line-2); }
+.student-task-completed { opacity: 0.7; }
+.student-task-card-main { display: flex; align-items: flex-start; gap: 12px; min-width: 0; flex: 1; }
+.student-task-check-btn { background: transparent !important; border: none !important; font-size: 18px; padding: 0 !important; cursor: pointer; color: var(--muted); }
+.student-task-check-btn:hover { color: var(--accent-hi); }
+.student-task-check { color: #10b981; font-size: 16px; font-weight: bold; }
+.student-task-info { min-width: 0; flex: 1; }
+.student-task-title { font-size: 14px; font-weight: 600; margin: 0 0 4px; color: var(--ink); overflow-wrap: anywhere; }
+.student-task-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11px; color: var(--muted); }
+.student-task-notes { font-size: 12px; color: var(--muted); margin: 4px 0 0; }
+.student-task-actions { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+/* Modals */
+.student-modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; z-index: 1000; padding: 20px; }
+.student-modal-dialog { width: min(580px, 100%); max-height: 90vh; overflow-y: auto; background: var(--side); border: 1px solid var(--line-2); border-radius: 14px; padding: 24px; box-shadow: 0 20px 60px rgba(0,0,0,0.4); color: var(--ink); }
+.student-modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
+.student-modal-header h2 { font-size: 18px; margin: 0; }
+.student-modal-close { background: transparent !important; border: none !important; font-size: 18px; cursor: pointer; color: var(--muted); padding: 4px 8px !important; }
+.student-modal-form { display: grid; gap: 14px; }
+.student-modal-form label { display: grid; gap: 6px; font-size: 13px; color: var(--ink); }
+.student-modal-form label span { font-weight: 500; }
+.student-modal-form input, .student-modal-form select, .student-modal-form textarea { width: 100%; padding: 9px 12px; border-radius: 8px; border: 1px solid var(--line-2); background: var(--bg); color: var(--ink); font: inherit; font-size: 13px; }
+.student-form-row { display: flex; gap: 12px; flex-wrap: wrap; }
+.student-form-row > * { flex: 1; min-width: 140px; }
+.student-req { color: #ef4444; }
+.student-modal-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 14px; }
+.student-save-log { margin-left: 8px; font-size: 12px; padding: 4px 10px !important; background: var(--card) !important; border: 1px solid var(--line) !important; border-radius: 6px !important; cursor: pointer; }
+.student-save-log:hover { background: var(--accent-soft) !important; border-color: var(--accent-line) !important; color: var(--accent-hi) !important; }
+

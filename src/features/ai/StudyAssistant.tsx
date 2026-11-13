@@ -4,6 +4,7 @@ import { request, apiUrl } from '@/features/academic/api';
 import type { Course } from '@/features/academic/types';
 import type { AISettings, ChatProviderId, ChatSource } from './types';
 import MemoryWorkspace from './MemoryWorkspace';
+import StudyLogDraftModal, { DraftLogData } from '@/features/study/StudyLogDraftModal';
 
 type Attempt = { requestId: string; message: string; courseIds: string[]; language: 'vi' | 'en'; provider: ChatProviderId; mode: 'materials' | 'expanded' };
 type Turn = Attempt & { id: string; scope: string[]; status: string; errorCode?: string; model?: string; answer: { answer: string; basis: string; sources: ChatSource[] } | null };
@@ -21,7 +22,19 @@ export default function StudyAssistant({ lang, courses }: { lang: string; course
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState<Attempt | null>(null);
+  const [draftLog, setDraftLog] = useState<DraftLogData | null>(null);
   const controller = useRef<AbortController | null>(null);
+
+  function openDraftLog(turn: Turn) {
+    setDraftLog({
+      courseId: turn.scope.length === 1 ? turn.scope[0] : null,
+      title: turn.message.slice(0, 100),
+      learnedContent: turn.answer?.answer || '',
+      activityType: 'review',
+      sourceTurnId: turn.id,
+      sourceConversationId: thread?.id,
+    });
+  }
   const current = useRef<string | null>(null);
   const mounted = useRef(false);
   const json = (body: object) => ({ headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -89,7 +102,7 @@ export default function StudyAssistant({ lang, courses }: { lang: string; course
       <p>{settings?.chatProviders.find((entry) => entry.id === provider)?.model}</p>
       <p>{provider === 'ollama' ? (vi ? 'Xử lý bằng model trên máy nếu embedding cũng là local.' : 'Processed locally when embeddings are also local.') : (vi ? 'Câu hỏi, trích đoạn, lịch sử và memory được gửi đến nhà cung cấp đã chọn.' : 'Questions, excerpts, history and memory are sent to the selected provider.')}</p>
       <label>{vi ? 'Cách trả lời' : 'Answer mode'}<select value={mode} disabled={busy || !!pending || !!attempt} onChange={(event) => setMode(event.target.value as typeof mode)}><option value="expanded">{vi ? 'Tài liệu + mở rộng' : 'Materials + knowledge'}</option><option value="materials">{vi ? 'Theo tài liệu' : 'Materials only'}</option></select></label>
-      <div role="log" aria-live="polite">{thread.turns.map((turn) => <article key={turn.id} className="student-chat-turn"><p><strong>{vi ? 'Bạn' : 'You'}:</strong> {turn.message}</p><small>{turn.provider} · {turn.model} · {turn.scope.map((id) => courses.find((course) => course.id === id)?.name || id).join(', ') || (vi ? 'Không dùng tài liệu' : 'No materials')}</small>{turn.answer && <><p className="student-chat-text">{turn.answer.answer}</p><p>{turn.answer.basis}</p>{turn.answer.sources.map((source) => <a key={source.sourceId} href={apiUrl(`documents/${source.documentId}/file`) + `#page=${source.pageNumber}`} target="_blank" rel="noopener">{source.documentName} · {source.pageNumber} </a>)}<button onClick={async () => { if (window.confirm(vi ? 'Lưu câu trả lời vào sở thích/ghi chú chung? Hãy kiểm tra tính đúng trước khi lưu.' : 'Save this answer as a global note? Check accuracy first.')) { try { await request('memories', { method: 'POST', ...json({ scope: 'global', content: turn.answer!.answer, requestId: crypto.randomUUID() }) }); } catch (err) { setError((err as Error).message); } } }}>{vi ? 'Lưu ghi chú (xác nhận)' : 'Save note (confirm)'}</button></>}{turn.status === 'failed' && <p role="alert">{turn.errorCode}</p>}{turn.status === 'pending' && <p role="status">{vi ? 'Đang xử lý…' : 'Working…'}</p>}</article>)}</div>
+      <div role="log" aria-live="polite">{thread.turns.map((turn) => <article key={turn.id} className="student-chat-turn"><p><strong>{vi ? 'Bạn' : 'You'}:</strong> {turn.message}</p><small>{turn.provider} · {turn.model} · {turn.scope.map((id) => courses.find((course) => course.id === id)?.name || id).join(', ') || (vi ? 'Không dùng tài liệu' : 'No materials')}</small>{turn.answer && <><p className="student-chat-text">{turn.answer.answer}</p><p>{turn.answer.basis}</p>{turn.answer.sources.map((source) => <a key={source.sourceId} href={apiUrl(`documents/${source.documentId}/file`) + `#page=${source.pageNumber}`} target="_blank" rel="noopener">{source.documentName} · {source.pageNumber} </a>)}<button onClick={async () => { if (window.confirm(vi ? 'Lưu câu trả lời vào sở thích/ghi chú chung? Hãy kiểm tra tính đúng trước khi lưu.' : 'Save this answer as a global note? Check accuracy first.')) { try { await request('memories', { method: 'POST', ...json({ scope: 'global', content: turn.answer!.answer, requestId: crypto.randomUUID() }) }); } catch (err) { setError((err as Error).message); } } }}>{vi ? 'Lưu ghi chú (xác nhận)' : 'Save note (confirm)'}</button><button type="button" className="student-save-log" onClick={() => openDraftLog(turn)}>📝 {vi ? 'Ghi vào nhật ký' : 'Save to diary'}</button></>}{turn.status === 'failed' && <p role="alert">{turn.errorCode}</p>}{turn.status === 'pending' && <p role="status">{vi ? 'Đang xử lý…' : 'Working…'}</p>}</article>)}</div>
       {attempt && !busy && <button disabled={!!pending} onClick={() => void send(attempt)}>{vi ? 'Thử lại cùng yêu cầu' : 'Retry same request'}</button>}
       {!attempt && !busy && thread.turns.at(-1)?.status === 'failed' && <button onClick={() => {
         const last = thread.turns.at(-1)!;
@@ -100,5 +113,15 @@ export default function StudyAssistant({ lang, courses }: { lang: string; course
       <form className="student-chat-compose" onSubmit={(event) => { event.preventDefault(); if (message.trim()) void send({ message: message.trim(), requestId: crypto.randomUUID(), courseIds: scope, provider, mode, language: vi ? 'vi' : 'en' }); }}><label>{vi ? 'Câu hỏi của bạn' : 'Your question'}<textarea maxLength={4000} rows={3} value={message} disabled={busy || !!pending || !!attempt} onChange={(event) => setMessage(event.target.value)} /></label><button disabled={busy || !!pending || !!attempt || !message.trim() || !settings?.chatProviders.find((entry) => entry.id === provider)?.configured}>{vi ? 'Gửi' : 'Send'}</button></form>
     </>}
     <details><summary>{vi ? 'Hồ sơ học tập: mục tiêu, trình độ, cách học và khó khăn' : 'Learning profile: goals, level, preferences and difficulties'}</summary><MemoryWorkspace lang={lang} target={{ scope: 'global' }} /></details>
+    {draftLog && (
+      <StudyLogDraftModal
+        draft={draftLog}
+        courses={courses}
+        todayDate={new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())}
+        lang={lang}
+        onSaved={() => setDraftLog(null)}
+        onClose={() => setDraftLog(null)}
+      />
+    )}
   </section>;
 }

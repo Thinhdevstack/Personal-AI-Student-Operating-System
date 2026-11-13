@@ -19,6 +19,7 @@ export function openStudentDatabase(dir) {
       new URL('./migrations/007-document-coverage.sql', import.meta.url),
       new URL('./migrations/008-ollama-cloud.sql', import.meta.url),
       new URL('./migrations/009-study-assistant.sql', import.meta.url),
+      new URL('./migrations/010-study-logs-and-tasks.sql', import.meta.url),
     ];
     // A migration on an existing database is preceded by a consistent SQLite snapshot.
     const applied = db.prepare('SELECT MAX(version) AS version FROM schema_migrations').get().version || 0;

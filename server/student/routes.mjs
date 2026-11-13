@@ -69,6 +69,77 @@ export function createStudentRoutes({ service, authorized, sameOrigin, demoSeed 
         if (parts.length === 2 && req.method === 'PATCH') return send(res, 200, service.updateMemory(id, target, await readObject(req)));
         if (parts.length === 2 && req.method === 'DELETE') { service.deleteMemory(id, target); return send(res, 200, { ok: true }); }
       }
+      if (kind === 'study-logs') {
+        if (parts.length === 1 && req.method === 'GET') {
+          return send(res, 200, service.studyLogs({
+            courseId: url.searchParams.get('courseId') || undefined,
+            studyDate: url.searchParams.get('studyDate') || undefined,
+            fromDate: url.searchParams.get('fromDate') || undefined,
+            toDate: url.searchParams.get('toDate') || undefined,
+            limit: url.searchParams.get('limit') ? Number(url.searchParams.get('limit')) : undefined,
+            offset: url.searchParams.get('offset') ? Number(url.searchParams.get('offset')) : undefined,
+          }));
+        }
+        if (parts.length === 1 && req.method === 'POST') {
+          return send(res, 201, service.createStudyLog(await readObject(req)));
+        }
+        if (parts.length === 2 && id === 'summary' && req.method === 'GET') {
+          return send(res, 200, service.studySummary({
+            courseId: url.searchParams.get('courseId') || undefined,
+            year: url.searchParams.get('year') ? Number(url.searchParams.get('year')) : undefined,
+            months: url.searchParams.get('months') ? Number(url.searchParams.get('months')) : undefined,
+          }));
+        }
+        if (parts.length === 2 && req.method === 'GET') {
+          return send(res, 200, service.studyLog(id));
+        }
+        if (parts.length === 2 && req.method === 'PATCH') {
+          return send(res, 200, service.updateStudyLog(id, await readObject(req)));
+        }
+        if (parts.length === 2 && req.method === 'DELETE') {
+          service.deleteStudyLog(id);
+          return send(res, 200, { ok: true });
+        }
+      }
+      if (kind === 'study-tasks') {
+        if (parts.length === 1 && req.method === 'GET') {
+          return send(res, 200, service.studyTasks({
+            courseId: url.searchParams.get('courseId') || undefined,
+            date: url.searchParams.get('date') || undefined,
+            status: url.searchParams.get('status') || undefined,
+            scope: url.searchParams.get('scope') || undefined,
+          }));
+        }
+        if (parts.length === 1 && req.method === 'POST') {
+          return send(res, 201, service.createStudyTask(await readObject(req)));
+        }
+        if (parts.length === 2 && id === 'suggestions' && req.method === 'GET') {
+          return send(res, 200, service.studySuggestions({
+            date: url.searchParams.get('date') || undefined,
+            courseId: url.searchParams.get('courseId') || undefined,
+            limit: url.searchParams.get('limit') ? Number(url.searchParams.get('limit')) : undefined,
+          }));
+        }
+        if (parts.length === 2 && req.method === 'GET') {
+          return send(res, 200, service.studyTask(id));
+        }
+        if (parts.length === 2 && req.method === 'PATCH') {
+          return send(res, 200, service.updateStudyTask(id, await readObject(req)));
+        }
+        if (parts.length === 2 && req.method === 'DELETE') {
+          service.deleteStudyTask(id);
+          return send(res, 200, { ok: true });
+        }
+        if (parts.length === 3 && child === 'complete' && req.method === 'POST') {
+          return send(res, 200, service.completeStudyTask(id, await readObject(req)));
+        }
+        if (parts.length === 3 && child === 'reopen' && req.method === 'POST') {
+          return send(res, 200, service.reopenStudyTask(id));
+        }
+        if (parts.length === 3 && child === 'reminder' && req.method === 'POST') {
+          return send(res, 200, service.updateStudyReminder(id, await readObject(req)));
+        }
+      }
       if (req.method === 'GET' && parts.length === 1 && kind === 'snapshot') return send(res, 200, service.snapshot());
       if (parts.length === 1 && kind === 'chat' && req.method === 'POST') {
         const input = await readObject(req), controller = new AbortController();
