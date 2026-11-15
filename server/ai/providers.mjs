@@ -62,8 +62,8 @@ export function registryForProvider(provider) {
   return createProviderRegistry({ embedding: provider, entries: [{ id, provider, configured: true }], defaultProvider: id, isMock: !!provider.isMock });
 }
 export function createAIProviders() {
-  const defaultProvider = process.env.AI_CHAT_PROVIDER || 'openai';
-  const embeddingId = process.env.AI_EMBEDDING_PROVIDER || 'openai';
+  const defaultProvider = process.env.AI_CHAT_PROVIDER || 'ollama';
+  const embeddingId = process.env.AI_EMBEDDING_PROVIDER || 'ollama';
   if (!ids.includes(defaultProvider) || !['openai', 'gemini', 'ollama'].includes(embeddingId)) throw new StudentError('aiProviderInvalid');
   const cloudModels = (process.env.OLLAMA_CLOUD_MODELS
     ? process.env.OLLAMA_CLOUD_MODELS.split(',').map((s) => s.trim()).filter(Boolean)

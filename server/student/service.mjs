@@ -32,6 +32,12 @@ export function createStudentService(dir, options = {}) {
   const processing = new Set();
   const progress = new Map();
   let processingTail = Promise.resolve();
+  const courseChangeListeners = new Set();
+  const notifyCourseChange = () => {
+    for (const l of courseChangeListeners) {
+      try { l(); } catch {}
+    }
+  };
   // A stopped server cannot finish its old in-memory jobs. Keep saved files/indexes and allow retry.
   db.prepare(`UPDATE documents SET status=CASE WHEN EXISTS(SELECT 1 FROM document_chunks c WHERE c.documentId=documents.id) THEN 'ready' ELSE 'failed' END,
     processingError='processingInterrupted' WHERE status='processing'`).run();
@@ -95,6 +101,7 @@ export function createStudentService(dir, options = {}) {
     createMemory: memory.create,
     updateMemory: memory.update,
     deleteMemory: memory.remove,
+    onCourseChange: (fn) => { courseChangeListeners.add(fn); return () => courseChangeListeners.delete(fn); },
     snapshot() {
       return {
         semesters: db.prepare('SELECT * FROM semesters ORDER BY createdAt DESC, id').all(),
@@ -135,6 +142,7 @@ export function createStudentService(dir, options = {}) {
         if (input.action === 'archive') {
           db.prepare("UPDATE semesters SET status='archived', isActive=0, updatedAt=? WHERE id=?").run(time, id);
           db.prepare("UPDATE courses SET status='archived', updatedAt=? WHERE semesterId=?").run(time, id);
+          notifyCourseChange();
         }
       })();
       return semester(id);
@@ -144,6 +152,7 @@ export function createStudentService(dir, options = {}) {
       if (semester(semesterId).status === 'archived') throw new StudentError('archived', 409);
       const id = randomUUID(), time = now();
       db.prepare('INSERT INTO courses (id, semesterId, name, code, description, status, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, semesterId, text(input.name, 120, true), text(input.code, 40), text(input.description, 2000), 'active', time, time);
+      notifyCourseChange();
       return course(id);
     },
     updateCourse(id, input) {
@@ -151,6 +160,7 @@ export function createStudentService(dir, options = {}) {
       if (input.action === 'rename') db.prepare('UPDATE courses SET name=?, updatedAt=? WHERE id=?').run(text(input.name, 120, true), now(), id);
       else if (input.action === 'archive') db.prepare("UPDATE courses SET status='archived', updatedAt=? WHERE id=?").run(now(), id);
       else throw new StudentError('invalidInput');
+      notifyCourseChange();
       return course(id);
     },
     deleteCourse(id) {
@@ -158,6 +168,7 @@ export function createStudentService(dir, options = {}) {
         course(id);
         if (db.prepare('SELECT id FROM documents WHERE courseId=? LIMIT 1').get(id) || db.prepare('SELECT id FROM chat_conversations WHERE courseId=?').get(id) || db.prepare('SELECT id FROM memories WHERE courseId=? OR sourceCourseId=? LIMIT 1').get(id, id) || db.prepare('SELECT id FROM study_logs WHERE courseId=? LIMIT 1').get(id) || db.prepare('SELECT id FROM study_tasks WHERE courseId=? LIMIT 1').get(id)) throw new StudentError('courseNotEmpty', 409);
         db.prepare('DELETE FROM courses WHERE id=?').run(id);
+        notifyCourseChange();
       })();
     },
     materials(id) {

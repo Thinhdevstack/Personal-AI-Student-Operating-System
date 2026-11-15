@@ -1,4 +1,5 @@
 'use client';
+
 import { useEffect, useRef, useState } from 'react';
 import { request, apiUrl } from '@/features/academic/api';
 import type { Course } from '@/features/academic/types';
@@ -6,9 +7,26 @@ import type { AISettings, ChatProviderId, ChatSource } from './types';
 import MemoryWorkspace from './MemoryWorkspace';
 import StudyLogDraftModal, { DraftLogData } from '@/features/study/StudyLogDraftModal';
 
-type Attempt = { requestId: string; message: string; courseIds: string[]; language: 'vi' | 'en'; provider: ChatProviderId; mode: 'materials' | 'expanded' };
-type Turn = Attempt & { id: string; scope: string[]; status: string; errorCode?: string; model?: string; answer: { answer: string; basis: string; sources: ChatSource[] } | null };
+type Attempt = {
+  requestId: string;
+  message: string;
+  courseIds: string[];
+  language: 'vi' | 'en';
+  provider: ChatProviderId;
+  mode: 'materials' | 'expanded';
+};
+
+type Turn = Attempt & {
+  id: string;
+  scope: string[];
+  status: string;
+  errorCode?: string;
+  model?: string;
+  answer: { answer: string; basis: string; sources: ChatSource[] } | null;
+};
+
 type Thread = { id: string; title: string; turns: Turn[] };
+
 export default function StudyAssistant({ lang, courses }: { lang: string; courses: Course[] }) {
   const vi = lang === 'vi';
   const [threads, setThreads] = useState<{ id: string; title: string }[]>([]);
@@ -23,6 +41,9 @@ export default function StudyAssistant({ lang, courses }: { lang: string; course
   const [error, setError] = useState('');
   const [attempt, setAttempt] = useState<Attempt | null>(null);
   const [draftLog, setDraftLog] = useState<DraftLogData | null>(null);
+  const [mobileConvOpen, setMobileConvOpen] = useState(false);
+  const [configOpen, setConfigOpen] = useState(false);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
   const controller = useRef<AbortController | null>(null);
 
   function openDraftLog(turn: Turn) {
@@ -35,93 +56,550 @@ export default function StudyAssistant({ lang, courses }: { lang: string; course
       sourceConversationId: thread?.id,
     });
   }
+
   const current = useRef<string | null>(null);
   const mounted = useRef(false);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
   const json = (body: object) => ({ headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+
   useEffect(() => {
     mounted.current = true;
     const abort = new AbortController();
-    Promise.all([request<{ id: string; title: string }[]>('assistant', { signal: abort.signal }), request<AISettings>('ai', { signal: abort.signal })]).then(([list, config]) => {
-      if (!abort.signal.aborted) { setThreads(list); setSettings(config); setProvider(config.defaultProvider); }
-    }).catch((err) => { if (!abort.signal.aborted) setError(String(err.message)); });
-    return () => { mounted.current = false; abort.abort(); controller.current?.abort(); };
+    Promise.all([
+      request<{ id: string; title: string }[]>('assistant', { signal: abort.signal }),
+      request<AISettings>('ai', { signal: abort.signal }),
+    ])
+      .then(([list, config]) => {
+        if (!abort.signal.aborted) {
+          setThreads(list);
+          setSettings(config);
+          setProvider(config.defaultProvider);
+          if (list.length > 0 && !current.current) {
+            void select(list[0].id);
+          }
+        }
+      })
+      .catch((err) => {
+        if (!abort.signal.aborted) setError(String(err.message));
+      });
+    return () => {
+      mounted.current = false;
+      abort.abort();
+      controller.current?.abort();
+    };
   }, []);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [thread?.turns.length, busy]);
+
   async function select(id: string) {
-    current.current = id; setAttempt(null); setError(''); setScope([]); setThread(null);
-    try { const result = await request<Thread>(`assistant/${id}`); if (mounted.current && current.current === id) { setThread(result); setTitle(result.title); } }
-    catch (err) { if (mounted.current) setError((err as Error).message); }
+    current.current = id;
+    setAttempt(null);
+    setError('');
+    setScope([]);
+    setThread(null);
+    setMobileConvOpen(false);
+    try {
+      const result = await request<Thread>(`assistant/${id}`);
+      if (mounted.current && current.current === id) {
+        setThread(result);
+        setTitle(result.title);
+      }
+    } catch (err) {
+      if (mounted.current) setError((err as Error).message);
+    }
   }
+
   async function manage(action: 'create' | 'rename' | 'delete') {
     if (busy) return;
     if (action === 'delete' && !window.confirm(vi ? 'Xóa hội thoại này?' : 'Delete this conversation?')) return;
-    setBusy(true); setError('');
+    setBusy(true);
+    setError('');
     try {
-      if (action === 'create') { const created = await request<Thread>('assistant', { method: 'POST', ...json({ title: title.trim() || (vi ? 'Hội thoại mới' : 'New conversation') }) }); await select(created.id); }
-      else if (thread) {
-        if (action === 'rename') setThread(await request<Thread>(`assistant/${thread.id}`, { method: 'PATCH', ...json({ title }) }));
-        else { await request(`assistant/${thread.id}`, { method: 'DELETE' }); setThread(null); current.current = null; }
+      if (action === 'create') {
+        const created = await request<Thread>('assistant', {
+          method: 'POST',
+          ...json({ title: (vi ? 'Hội thoại ' : 'Conversation ') + (threads.length + 1) }),
+        });
+        await select(created.id);
+      } else if (thread) {
+        if (action === 'rename') {
+          const newTitle = window.prompt(vi ? 'Nhập tên mới cho hội thoại:' : 'New conversation title:', title);
+          if (newTitle && newTitle.trim()) {
+            const updated = await request<Thread>(`assistant/${thread.id}`, { method: 'PATCH', ...json({ title: newTitle.trim() }) });
+            setThread(updated);
+            setTitle(updated.title);
+          }
+        } else {
+          await request(`assistant/${thread.id}`, { method: 'DELETE' });
+          setThread(null);
+          current.current = null;
+        }
       }
       setThreads(await request('assistant'));
-    } catch (err) { setError((err as Error).message); }
-    finally { if (mounted.current) setBusy(false); }
+    } catch (err) {
+      setError((err as Error).message);
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
   }
+
   async function send(next: Attempt) {
     if (!thread || busy) return;
-    const id = thread.id; setBusy(true); setError(''); setAttempt(next); setMessage('');
-    const abort = new AbortController(); controller.current = abort;
+    const id = thread.id;
+    setBusy(true);
+    setError('');
+    setAttempt(next);
+    setMessage('');
+    const abort = new AbortController();
+    controller.current = abort;
     try {
       const result = await request<Thread>(`assistant/${id}/chat`, { method: 'POST', ...json(next), signal: abort.signal });
-      if (mounted.current && current.current === id) { setThread(result); setAttempt(null); }
+      if (mounted.current && current.current === id) {
+        setThread(result);
+        setAttempt(null);
+      }
     } catch (err) {
       if (mounted.current && current.current === id) {
         setError(abort.signal.aborted ? (vi ? 'Đã dừng yêu cầu.' : 'Request stopped.') : (err as Error).message);
-        try { const saved = await request<Thread>(`assistant/${id}`, { signal: AbortSignal.timeout(5000) }); if (mounted.current && current.current === id) { setThread(saved); if (saved.turns.find((turn) => turn.requestId === next.requestId)?.status === 'completed') setAttempt(null); } } catch { /* Retry retains the original request. */ }
+        try {
+          const saved = await request<Thread>(`assistant/${id}`, { signal: AbortSignal.timeout(5000) });
+          if (mounted.current && current.current === id) {
+            setThread(saved);
+            if (saved.turns.find((turn) => turn.requestId === next.requestId)?.status === 'completed') setAttempt(null);
+          }
+        } catch {
+          /* Retry retains original request */
+        }
       }
-    } finally { if (mounted.current) setBusy(false); }
+    } finally {
+      if (mounted.current) setBusy(false);
+    }
   }
+
   const pending = thread?.turns.find((turn) => turn.status === 'pending');
-  async function refresh() { if (thread) await select(thread.id); }
+
   async function stop() {
     if (!thread) return;
     const requestId = attempt?.requestId || pending?.requestId;
-    if (requestId) { try { await request(`assistant/${thread.id}/cancel`, { method: 'POST', ...json({ requestId }) }); } catch (err) { setError((err as Error).message); } }
+    if (requestId) {
+      try {
+        await request(`assistant/${thread.id}/cancel`, { method: 'POST', ...json({ requestId }) });
+      } catch (err) {
+        setError((err as Error).message);
+      }
+    }
     controller.current?.abort();
   }
-  return <section className="student-panel course-chat study-assistant">
-    <h2>{vi ? 'Trợ lý học tập' : 'Study assistant'}</h2>
-    <p>{vi ? 'Trao đổi việc học. Chỉ dùng tài liệu của các môn bạn chọn; chưa có tìm web hoặc nhắc học tự động.' : 'Discuss your studies. Only selected course materials are used. No web search or automatic reminders.'}</p>
-    {error && <p role="alert">{error}</p>}
-    <label>{vi ? 'Tên hội thoại' : 'Conversation title'}<input value={title} maxLength={120} disabled={busy || !!pending} onChange={(event) => setTitle(event.target.value)} /></label>
-    <button disabled={busy || !!pending} onClick={() => void manage('create')}>{vi ? 'Hội thoại mới' : 'New conversation'}</button>
-    <label>{vi ? 'Hội thoại' : 'Conversation'}<select value={thread?.id || ''} disabled={busy || !!pending} onChange={(event) => { if (event.target.value) void select(event.target.value); }}><option value="">—</option>{threads.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</select></label>
-    {thread && <>
-      <button disabled={busy || !!pending || !title.trim()} onClick={() => void manage('rename')}>{vi ? 'Đổi tên' : 'Rename'}</button>
-      <button disabled={busy || !!pending} onClick={() => void manage('delete')}>{vi ? 'Xóa hội thoại' : 'Delete conversation'}</button>
-      <fieldset disabled={busy || !!pending || !!attempt}><legend>{vi ? 'Nguồn tài liệu (bỏ chọn tất cả để dùng kiến thức model)' : 'Sources (none selected means model knowledge)'}</legend>{courses.filter((course) => course.status === 'active').map((course) => <label className="student-check" key={course.id}><input type="checkbox" checked={scope.includes(course.id)} onChange={(event) => setScope(event.target.checked ? [...scope, course.id] : scope.filter((id) => id !== course.id))} />{course.name}</label>)}</fieldset>
-      <label>{vi ? 'Nhà cung cấp AI' : 'AI provider'}<select value={provider} disabled={busy || !!pending || !!attempt} onChange={(event) => setProvider(event.target.value as ChatProviderId)}>{settings?.chatProviders.map((entry) => <option key={entry.id} value={entry.id} disabled={!entry.configured}>{entry.label}{!entry.configured ? (vi ? ' · Chưa cấu hình' : ' · Not configured') : ''}</option>)}</select></label>
-      <p>{settings?.chatProviders.find((entry) => entry.id === provider)?.model}</p>
-      <p>{provider === 'ollama' ? (vi ? 'Xử lý bằng model trên máy nếu embedding cũng là local.' : 'Processed locally when embeddings are also local.') : (vi ? 'Câu hỏi, trích đoạn, lịch sử và memory được gửi đến nhà cung cấp đã chọn.' : 'Questions, excerpts, history and memory are sent to the selected provider.')}</p>
-      <label>{vi ? 'Cách trả lời' : 'Answer mode'}<select value={mode} disabled={busy || !!pending || !!attempt} onChange={(event) => setMode(event.target.value as typeof mode)}><option value="expanded">{vi ? 'Tài liệu + mở rộng' : 'Materials + knowledge'}</option><option value="materials">{vi ? 'Theo tài liệu' : 'Materials only'}</option></select></label>
-      <div role="log" aria-live="polite">{thread.turns.map((turn) => <article key={turn.id} className="student-chat-turn"><p><strong>{vi ? 'Bạn' : 'You'}:</strong> {turn.message}</p><small>{turn.provider} · {turn.model} · {turn.scope.map((id) => courses.find((course) => course.id === id)?.name || id).join(', ') || (vi ? 'Không dùng tài liệu' : 'No materials')}</small>{turn.answer && <><p className="student-chat-text">{turn.answer.answer}</p><p>{turn.answer.basis}</p>{turn.answer.sources.map((source) => <a key={source.sourceId} href={apiUrl(`documents/${source.documentId}/file`) + `#page=${source.pageNumber}`} target="_blank" rel="noopener">{source.documentName} · {source.pageNumber} </a>)}<button onClick={async () => { if (window.confirm(vi ? 'Lưu câu trả lời vào sở thích/ghi chú chung? Hãy kiểm tra tính đúng trước khi lưu.' : 'Save this answer as a global note? Check accuracy first.')) { try { await request('memories', { method: 'POST', ...json({ scope: 'global', content: turn.answer!.answer, requestId: crypto.randomUUID() }) }); } catch (err) { setError((err as Error).message); } } }}>{vi ? 'Lưu ghi chú (xác nhận)' : 'Save note (confirm)'}</button><button type="button" className="student-save-log" onClick={() => openDraftLog(turn)}>📝 {vi ? 'Ghi vào nhật ký' : 'Save to diary'}</button></>}{turn.status === 'failed' && <p role="alert">{turn.errorCode}</p>}{turn.status === 'pending' && <p role="status">{vi ? 'Đang xử lý…' : 'Working…'}</p>}</article>)}</div>
-      {attempt && !busy && <button disabled={!!pending} onClick={() => void send(attempt)}>{vi ? 'Thử lại cùng yêu cầu' : 'Retry same request'}</button>}
-      {!attempt && !busy && thread.turns.at(-1)?.status === 'failed' && <button onClick={() => {
-        const last = thread.turns.at(-1)!;
-        void send({ message: last.message, requestId: last.requestId, courseIds: last.scope, provider: last.provider, mode: last.mode, language: last.language });
-      }}>{vi ? 'Thử lại câu bị lỗi' : 'Retry failed question'}</button>}
-      {pending && !busy && <button onClick={() => void refresh()}>{vi ? 'Kiểm tra lịch sử' : 'Refresh history'}</button>}
-      {(busy || pending) && <button onClick={() => void stop()}>{vi ? 'Dừng trả lời' : 'Stop'}</button>}
-      <form className="student-chat-compose" onSubmit={(event) => { event.preventDefault(); if (message.trim()) void send({ message: message.trim(), requestId: crypto.randomUUID(), courseIds: scope, provider, mode, language: vi ? 'vi' : 'en' }); }}><label>{vi ? 'Câu hỏi của bạn' : 'Your question'}<textarea maxLength={4000} rows={3} value={message} disabled={busy || !!pending || !!attempt} onChange={(event) => setMessage(event.target.value)} /></label><button disabled={busy || !!pending || !!attempt || !message.trim() || !settings?.chatProviders.find((entry) => entry.id === provider)?.configured}>{vi ? 'Gửi' : 'Send'}</button></form>
-    </>}
-    <details><summary>{vi ? 'Hồ sơ học tập: mục tiêu, trình độ, cách học và khó khăn' : 'Learning profile: goals, level, preferences and difficulties'}</summary><MemoryWorkspace lang={lang} target={{ scope: 'global' }} /></details>
-    {draftLog && (
-      <StudyLogDraftModal
-        draft={draftLog}
-        courses={courses}
-        todayDate={new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Bangkok', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())}
-        lang={lang}
-        onSaved={() => setDraftLog(null)}
-        onClose={() => setDraftLog(null)}
-      />
-    )}
-  </section>;
+
+  function copyText(id: string, text: string) {
+    void navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  }
+
+  const activeProviderEntry = settings?.chatProviders.find((entry) => entry.id === provider);
+
+  return (
+    <div className="student-assistant-layout">
+      {/* 1. Left Conversation List Sidebar */}
+      <aside className={`student-assistant-sidebar ${mobileConvOpen ? 'is-open' : ''}`}>
+        <div className="student-assistant-sidebar-header">
+          <button
+            type="button"
+            className="student-primary"
+            style={{ width: '100%', justifyContent: 'center', display: 'flex', alignItems: 'center', gap: 6 }}
+            disabled={busy || !!pending}
+            onClick={() => void manage('create')}
+          >
+            <span>+</span> {vi ? 'Hội thoại mới' : 'New conversation'}
+          </button>
+        </div>
+
+        <div className="student-conv-list">
+          {threads.length === 0 ? (
+            <p style={{ padding: '16px 12px', fontSize: 13, color: 'var(--student-text-faint)', margin: 0 }}>
+              {vi ? 'Chưa có hội thoại nào.' : 'No conversations yet.'}
+            </p>
+          ) : (
+            threads.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={`student-conv-item ${thread?.id === item.id ? 'is-active' : ''}`}
+                onClick={() => void select(item.id)}
+              >
+                <span className="student-conv-title">{item.title}</span>
+                <span className="student-conv-meta">
+                  {thread?.id === item.id ? (vi ? 'Đang chọn' : 'Active') : (vi ? 'Nhấn để mở' : 'Open')}
+                </span>
+              </button>
+            ))
+          )}
+        </div>
+      </aside>
+
+      {/* 2. Main Chat Workspace */}
+      <div className="student-assistant-main">
+        {/* Header: Provider & Model status + Config Toggle */}
+        <div className="student-assistant-header">
+          <div className="student-assistant-header-info">
+            <button
+              type="button"
+              className="student-mobile-btn"
+              onClick={() => setMobileConvOpen(!mobileConvOpen)}
+            >
+              ☰ {vi ? 'Hội thoại' : 'Chats'}
+            </button>
+            <div className="student-model-badge">
+              <span className="student-model-status-dot" />
+              <span>{activeProviderEntry?.label || provider} · {activeProviderEntry?.model || 'local'}</span>
+            </div>
+            {thread && (
+              <span style={{ fontSize: 13, color: 'var(--student-text-muted)' }}>
+                {title}
+              </span>
+            )}
+          </div>
+
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+            {thread && (
+              <>
+                <button
+                  type="button"
+                  className="student-btn-subtle"
+                  style={{ fontSize: 12 }}
+                  disabled={busy || !!pending}
+                  onClick={() => void manage('rename')}
+                  title={vi ? 'Đổi tên' : 'Rename'}
+                >
+                  ✏️ {vi ? 'Đổi tên' : 'Rename'}
+                </button>
+                <button
+                  type="button"
+                  className="student-btn-subtle student-btn-danger"
+                  style={{ fontSize: 12 }}
+                  disabled={busy || !!pending}
+                  onClick={() => void manage('delete')}
+                  title={vi ? 'Xóa hội thoại' : 'Delete'}
+                >
+                  🗑️
+                </button>
+              </>
+            )}
+            <button
+              type="button"
+              className="student-config-toggle"
+              onClick={() => setConfigOpen(!configOpen)}
+            >
+              <span>{vi ? 'Cấu hình & Nguồn tài liệu' : 'Context & Config'}</span>
+              <span>{configOpen ? '▲' : '▼'}</span>
+            </button>
+          </div>
+        </div>
+
+        {/* Collapsible Context Configuration Panel */}
+        {configOpen && (
+          <div className="student-assistant-config-panel">
+            <div>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--student-text-faint)', textTransform: 'uppercase', marginBottom: 6 }}>
+                {vi ? 'Nguồn tài liệu môn học' : 'Course Materials'}
+              </label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 4, maxHeight: 120, overflowY: 'auto' }}>
+                <label className="student-check" style={{ fontSize: 12 }}>
+                  <input
+                    type="checkbox"
+                    checked={scope.length === 0}
+                    onChange={() => setScope([])}
+                  />
+                  <span>{vi ? 'Tất cả tài liệu môn đang hoạt động' : 'All active course materials'}</span>
+                </label>
+                {courses.filter((c) => c.status === 'active').map((course) => (
+                  <label key={course.id} className="student-check" style={{ fontSize: 12 }}>
+                    <input
+                      type="checkbox"
+                      checked={scope.includes(course.id)}
+                      onChange={(e) => {
+                        if (e.target.checked) setScope([...scope, course.id]);
+                        else setScope(scope.filter((id) => id !== course.id));
+                      }}
+                    />
+                    <span>{course.name} {course.code ? `(${course.code})` : ''}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--student-text-faint)', textTransform: 'uppercase', marginBottom: 6 }}>
+                {vi ? 'Nhà cung cấp AI & Cách trả lời' : 'AI Provider & Mode'}
+              </label>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <select
+                  value={provider}
+                  disabled={busy || !!pending || !!attempt}
+                  onChange={(e) => setProvider(e.target.value as ChatProviderId)}
+                  style={{ fontSize: 13, padding: '5px 8px' }}
+                >
+                  {settings?.chatProviders.map((entry) => (
+                    <option key={entry.id} value={entry.id} disabled={!entry.configured}>
+                      {entry.label} {!entry.configured ? (vi ? '· Chưa cài' : '· Not ready') : ''}
+                    </option>
+                  ))}
+                </select>
+                <select
+                  value={mode}
+                  disabled={busy || !!pending || !!attempt}
+                  onChange={(e) => setMode(e.target.value as typeof mode)}
+                  style={{ fontSize: 13, padding: '5px 8px' }}
+                >
+                  <option value="expanded">{vi ? 'Tài liệu + Kiến thức mở rộng' : 'Materials + Knowledge'}</option>
+                  <option value="materials">{vi ? 'Chỉ trả lời từ tài liệu' : 'Strictly materials only'}</option>
+                </select>
+              </div>
+            </div>
+
+            <div>
+              <label style={{ display: 'block', fontSize: 11, fontWeight: 600, color: 'var(--student-text-faint)', textTransform: 'uppercase', marginBottom: 6 }}>
+                {vi ? 'Hồ sơ học tập & Ghi nhớ' : 'Memory & Profile'}
+              </label>
+              <details style={{ fontSize: 12 }}>
+                <summary style={{ cursor: 'pointer', color: 'var(--student-accent-hover)' }}>
+                  {vi ? 'Xem ghi nhớ học tập toàn cục' : 'View global study memory'}
+                </summary>
+                <div style={{ marginTop: 8 }}>
+                  <MemoryWorkspace lang={lang} target={{ scope: 'global' }} />
+                </div>
+              </details>
+            </div>
+          </div>
+        )}
+
+        {/* 3. Messages Container (Scrollable) */}
+        <div className="student-assistant-messages">
+          {error && <div className="student-error" role="alert">{error}</div>}
+
+          {!thread ? (
+            <div className="student-empty" style={{ maxWidth: 540, margin: '60px auto 0' }}>
+              <div className="student-empty-icon">💬</div>
+              <h3 style={{ margin: 0, fontSize: 16, color: 'var(--student-text)' }}>
+                {vi ? 'Chọn hoặc tạo một hội thoại để bắt đầu' : 'Select or create a conversation'}
+              </h3>
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--student-text-muted)' }}>
+                {vi ? 'Trợ lý sẽ giúp bạn tóm tắt bài học, giải bài tập và tra cứu trích dẫn trực tiếp từ các file PDF đã tải lên.' : 'The study assistant helps you review materials, solve questions and locate citations from your uploaded PDFs.'}
+              </p>
+              <button
+                type="button"
+                className="student-primary"
+                style={{ marginTop: 8 }}
+                onClick={() => void manage('create')}
+              >
+                + {vi ? 'Bắt đầu hội thoại mới' : 'Start new conversation'}
+              </button>
+            </div>
+          ) : thread.turns.length === 0 ? (
+            <div className="student-empty" style={{ maxWidth: 620, margin: '40px auto 0' }}>
+              <div className="student-empty-icon">✨</div>
+              <h3 style={{ margin: 0, fontSize: 16, color: 'var(--student-text)' }}>
+                {vi ? 'Bắt đầu đặt câu hỏi với Trợ lý học tập' : 'Ask anything about your courses'}
+              </h3>
+              <p style={{ margin: 0, fontSize: 13, color: 'var(--student-text-muted)' }}>
+                {vi ? 'Bạn có thể hỏi về các khái niệm lý thuyết, yêu cầu giải thích slide hoặc tóm tắt tài liệu môn học.' : 'Ask about theoretical concepts, slide explanations or summaries.'}
+              </p>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6, width: '100%', marginTop: 12 }}>
+                <button
+                  type="button"
+                  style={{ textAlign: 'left', padding: '8px 12px', fontSize: 13 }}
+                  onClick={() => setMessage(vi ? 'Tóm tắt các ý chính trong chương gần nhất của môn học?' : 'Summarize key points from the latest chapter?')}
+                >
+                  💡 &ldquo;{vi ? 'Tóm tắt các ý chính trong chương gần nhất của môn học?' : 'Summarize key points from the latest chapter?'}&rdquo;
+                </button>
+                <button
+                  type="button"
+                  style={{ textAlign: 'left', padding: '8px 12px', fontSize: 13 }}
+                  onClick={() => setMessage(vi ? 'Giải thích công thức và điều kiện áp dụng trong bài giảng?' : 'Explain formulas and applicability from lecture?')}
+                >
+                  💡 &ldquo;{vi ? 'Giải thích công thức và điều kiện áp dụng trong bài giảng?' : 'Explain formulas and applicability from lecture?'}&rdquo;
+                </button>
+              </div>
+            </div>
+          ) : (
+            thread.turns.map((turn) => (
+              <div key={turn.id} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+                {/* User Turn */}
+                <div className="student-chat-bubble-user">
+                  {turn.message}
+                </div>
+
+                {/* Assistant Turn */}
+                <div className="student-chat-bubble-assistant">
+                  {turn.status === 'pending' ? (
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--student-text-muted)', fontSize: 14 }}>
+                      <span className="student-collapse-icon is-open">⚙️</span>
+                      <span>{vi ? 'Đang trích xuất tài liệu và tổng hợp câu trả lời...' : 'Searching materials and preparing answer...'}</span>
+                    </div>
+                  ) : turn.status === 'failed' ? (
+                    <div className="student-error" style={{ margin: 0 }}>
+                      <strong>{vi ? 'Lỗi xử lý câu trả lời:' : 'Failed to answer:'}</strong> {turn.errorCode || (vi ? 'Mô hình không phản hồi.' : 'Model error.')}
+                    </div>
+                  ) : (
+                    <>
+                      <div style={{ whiteSpace: 'pre-wrap', lineHeight: 1.65 }}>
+                        {turn.answer?.answer}
+                      </div>
+
+                      {turn.answer?.basis && (
+                        <p style={{ margin: '10px 0 0', fontSize: 12, color: 'var(--student-text-faint)' }}>
+                          {turn.answer.basis}
+                        </p>
+                      )}
+
+                      {/* Citations as chips */}
+                      {turn.answer?.sources && turn.answer.sources.length > 0 && (
+                        <div style={{ marginTop: 10, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                          {turn.answer.sources.map((source) => (
+                            <a
+                              key={source.sourceId}
+                              className="student-citation-chip"
+                              href={apiUrl(`documents/${source.documentId}/file`) + `#page=${source.pageNumber}`}
+                              target="_blank"
+                              rel="noopener"
+                            >
+                              📄 {source.documentName} · {vi ? 'Trang' : 'Page'} {source.pageNumber}
+                            </a>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* Actions row under response */}
+                      <div className="student-chat-actions-row">
+                        <button
+                          type="button"
+                          className="student-btn-sm"
+                          onClick={async () => {
+                            if (window.confirm(vi ? 'Lưu câu trả lời vào sở thích/ghi chú chung? Hãy kiểm tra tính đúng trước khi lưu.' : 'Save this answer as a global note?')) {
+                              try {
+                                await request('memories', {
+                                  method: 'POST',
+                                  ...json({ scope: 'global', content: turn.answer!.answer, requestId: crypto.randomUUID() }),
+                                });
+                                alert(vi ? 'Đã lưu vào ghi chú chung!' : 'Saved to notes!');
+                              } catch (err) {
+                                setError((err as Error).message);
+                              }
+                            }
+                          }}
+                        >
+                          📌 {vi ? 'Lưu ghi chú' : 'Save note'}
+                        </button>
+                        <button
+                          type="button"
+                          className="student-btn-sm"
+                          onClick={() => openDraftLog(turn)}
+                        >
+                          ⏱️ {vi ? 'Ghi vào nhật ký' : 'Save to diary'}
+                        </button>
+                        <button
+                          type="button"
+                          className="student-btn-sm"
+                          onClick={() => copyText(turn.id, turn.answer?.answer || '')}
+                        >
+                          {copiedId === turn.id ? (vi ? '✓ Đã chép' : '✓ Copied') : (vi ? 'Sao chép' : 'Copy')}
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </div>
+            ))
+          )}
+
+          {attempt && !busy && (
+            <div style={{ textAlign: 'center', marginTop: 10 }}>
+              <button type="button" className="student-primary" onClick={() => void send(attempt)}>
+                {vi ? 'Thử lại lượt vừa xong' : 'Retry last request'}
+              </button>
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* 4. Chat Input Bar (Pinned at bottom) */}
+        {thread && (
+          <form
+            className="student-chat-pinned-input"
+            onSubmit={(e) => {
+              e.preventDefault();
+              if (message.trim() && !busy && !pending) {
+                void send({
+                  message: message.trim(),
+                  requestId: crypto.randomUUID(),
+                  courseIds: scope,
+                  provider,
+                  mode,
+                  language: vi ? 'vi' : 'en',
+                });
+              }
+            }}
+          >
+            <div className="student-chat-input-wrapper">
+              <input
+                type="text"
+                placeholder={vi ? 'Nhập câu hỏi học tập hoặc yêu cầu giải thích...' : 'Ask a question about your study materials...'}
+                value={message}
+                disabled={busy || !!pending || !!attempt}
+                onChange={(e) => setMessage(e.target.value)}
+              />
+              {(busy || pending) ? (
+                <button
+                  type="button"
+                  className="student-btn-danger"
+                  style={{ padding: '4px 10px', fontSize: 12, borderRadius: 6 }}
+                  onClick={() => void stop()}
+                >
+                  {vi ? 'Dừng' : 'Stop'}
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  className="student-primary"
+                  style={{ padding: '6px 14px', borderRadius: 6, fontSize: 13 }}
+                  disabled={!message.trim() || !activeProviderEntry?.configured}
+                >
+                  {vi ? 'Gửi' : 'Send'}
+                </button>
+              )}
+            </div>
+            <div style={{ maxWidth: 860, margin: '6px auto 0', display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--student-text-faint)' }}>
+              <span>Enter {vi ? 'để gửi' : 'to send'}</span>
+              <span>
+                {vi ? 'Nguồn:' : 'Context:'} {scope.length === 0 ? (vi ? 'Tất cả môn đang hoạt động' : 'All courses') : `${scope.length} ${vi ? 'môn đã chọn' : 'selected courses'}`}
+              </span>
+            </div>
+          </form>
+        )}
+      </div>
+
+      {/* 5. Study Log Draft Modal */}
+      {draftLog && (
+        <StudyLogDraftModal
+          draft={draftLog}
+          courses={courses}
+          todayDate={
+            new Intl.DateTimeFormat('en-CA', {
+              timeZone: 'Asia/Bangkok',
+              year: 'numeric',
+              month: '2-digit',
+              day: '2-digit',
+            }).format(new Date())
+          }
+          lang={lang}
+          onSaved={() => setDraftLog(null)}
+          onClose={() => setDraftLog(null)}
+        />
+      )}
+    </div>
+  );
 }

@@ -1,9 +1,14 @@
 import { getLang, getT } from '@/i18n/server';
 import StudentWorkspace from '@/features/academic/StudentWorkspace';
+import StudentPreview from '@/features/student-preview/StudentPreview';
 import '@/styles/student.css';
 import { getStudentDemo, getStudentLocal } from '@/features/academic/server-mode';
 
-export default async function StudentPage() {
+export default async function StudentPage({ searchParams }: { searchParams?: Promise<{ preview?: string }> }) {
+  const params = await searchParams;
+  if (params?.preview === '1' || params?.preview === 'p5') {
+    return <StudentPreview lang={await getLang()} />;
+  }
   if (process.env.OFFICE_STATIC === '1') {
     const t = await getT();
     return <main className="student-static"><h1>{t('student.title')}</h1><p>{t('student.staticOnly')}</p></main>;

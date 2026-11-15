@@ -134,15 +134,19 @@ export function createChatEngine(ctx) {
     options = options.map((t) => short(String(t).trim(), 60)).filter(Boolean).slice(0, 6);
     if (options.length < 2) return;
     system(tr('chat.sys.poll', { name: p.name, q: short(q, 120) }));
-    say(from, short(q, 120), { now: true, pin: true, poll: { q: short(q, 120), opts: options.map((t) => ({ t, by: [] })) },
-      then: (m) => { for (const id of resting()) timer(() => vote(m.id, id, Math.floor(Math.random() * options.length)), rand(5000, 70000)); } });
+    say(from, short(q, 120), {
+      now: true, pin: true, poll: { q: short(q, 120), opts: options.map((t) => ({ t, by: [] })) },
+      then: (m) => { for (const id of resting()) timer(() => vote(m.id, id, Math.floor(Math.random() * options.length)), rand(5000, 70000)); }
+    });
   }
   /** A reminder card ("Nhắc hẹn"): title, when (ms), repeat ('week' or ''); people say yes over time; a line when it's due. */
   function remind(from, title, at, repeat = '', key) {
     const p = who(from); if (!p || !fresh(key)) return;
     system(tr('chat.sys.remind', { name: p.name }));
-    say(from, title, { now: true, remind: { title, at, repeat, yes: [], no: [] },
-      then: (m) => { for (const id of resting()) timer(() => rsvp(m.id, id, true), rand(4000, 60000)); } });
+    say(from, title, {
+      now: true, remind: { title, at, repeat, yes: [], no: [] },
+      then: (m) => { for (const id of resting()) timer(() => rsvp(m.id, id, true), rand(4000, 60000)); }
+    });
   }
   function rsvp(id, by, yes) {
     const m = byId(id); if (m?.kind !== 'remind') return;
@@ -199,7 +203,65 @@ export function createChatEngine(ctx) {
     const mine = st.msgs.at(-1);
     if (!text) { const id = anyone(); if (id) say(id, '', { sticker: Math.floor(Math.random() * tr('chat.stickers', null, 'list').length), delay: rand(2000, 6000) }); return; }
     const quote = mine ? { id: mine.id, name: tr('chat.boss'), text: short(text, 90) } : null;
-    const low = text.toLowerCase(), named = members().filter((m) => text.includes(`@${m.name}`));
+    const low = text.toLowerCase();
+
+    // Định tuyến câu hỏi cho môn học (Course Tutor) nếu có
+    const allMembers = members();
+    const courseMembers = allMembers.filter((m) => m.isCourse || m.id?.startsWith('course:'));
+    let matchedCourse = null;
+    let cleanQuestion = text;
+
+    if (courseMembers.length > 0) {
+      // 1. Kiểm tra @mention theo tên môn, mã môn hoặc tiêu đề
+      for (const cm of courseMembers) {
+        const names = [cm.name, cm.courseCode, cm.title].filter(Boolean);
+        for (const n of names) {
+          const atTag = `@${n}`.toLowerCase();
+          if (low.includes(atTag)) {
+            matchedCourse = cm;
+            cleanQuestion = text.replace(new RegExp(`@${n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`, 'gi'), '').trim();
+            break;
+          }
+        }
+        if (matchedCourse) break;
+      }
+      // 2. Nếu reply vào tin nhắn của môn học
+      if (!matchedCourse && r && courseMembers.some((cm) => cm.id === r.from)) {
+        matchedCourse = courseMembers.find((cm) => cm.id === r.from);
+      }
+      // 3. Tự nhận diện môn qua từ khóa trong câu hỏi
+      if (!matchedCourse) {
+        for (const cm of courseMembers) {
+          const names = [cm.name, cm.courseCode].filter(Boolean);
+          // Tách thêm các cụm từ con của tên môn (ví dụ 'Hệ điều hành' từ 'Nguyên lí Hệ điều hành')
+          const words = (cm.name || '').trim().split(/\s+/);
+          if (words.length > 2) {
+            names.push(words.slice(1).join(' '));
+            names.push(words.slice(2).join(' '));
+          }
+          for (const n of names) {
+            if (!n) continue;
+            const nLow = n.toLowerCase();
+            if (nLow.length >= 4 && low.includes(nLow)) {
+              matchedCourse = cm;
+              break;
+            }
+          }
+          if (matchedCourse) break;
+        }
+      }
+      // 4. Nếu chỉ có đúng 1 môn học đang active và câu hỏi có nội dung học tập
+      if (!matchedCourse && courseMembers.length === 1 && cleanQuestion.length >= 6 && !low.includes('@')) {
+        matchedCourse = courseMembers[0];
+      }
+    }
+
+    if (matchedCourse && ctx.onCourseQuestion) {
+      ctx.onCourseQuestion({ member: matchedCourse, question: cleanQuestion || text, quote });
+      return;
+    }
+
+    const named = allMembers.filter((m) => text.includes(`@${m.name}`));
     for (const m of named) say(m.id, statusOf(m), { delay: rand(800, 3000), reply: quote });
     // a reply to one of theirs: that person answers it
     if (r && r.from !== 'me' && !named.some((m) => m.id === r.from) && who(r.from) && !r.from.startsWith('__')) say(r.from, tr('chat.reply.any'), { delay: rand(1200, 3500), reply: quote });

@@ -146,7 +146,7 @@ function content(m) {
   // a long one (a whole prompt, Claude's answer) folded the way the app does, "Xem thêm" to read it all
   const full = mask(m.text), long = !opened.has(m.id) && (full.length > 700 || full.split('\n').length > 14);
   const shown = long ? `${full.split('\n').slice(0, 10).join('\n').slice(0, 520).trimEnd()}…` : full;
-  if (m.tag === 'claude') { t.classList.add('zc-md'); t.append(md(shown)); }   // (Claude's answer: its Markdown, laid out)
+  if (m.tag === 'claude' || m.tag === 'tutor') { t.classList.add('zc-md'); t.append(md(shown)); }   // (Câu trả lời có định dạng Markdown)
   else for (const part of shown.split(re)) { if (part?.startsWith('@')) t.append(el('span', 'zc-at', part)); else if (part) t.append(part); }
   if (long) {
     const more = el('button', 'zc-readmore', tr('chat.readMore')); more.type = 'button';

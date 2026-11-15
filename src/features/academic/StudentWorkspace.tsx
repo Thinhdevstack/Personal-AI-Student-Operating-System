@@ -5,6 +5,7 @@ import type { FormEvent } from 'react';
 import { createT } from '@/i18n/index.js';
 import type { AcademicSnapshot, Course, DocumentPage, Material, SearchResult, Semester } from './types';
 import * as api from './api';
+import * as apiStudy from '@/features/study/api';
 import CourseChat from '@/features/ai/CourseChat';
 import StudyAssistant from '@/features/ai/StudyAssistant';
 import MemoryWorkspace from '@/features/ai/MemoryWorkspace';
@@ -47,6 +48,18 @@ export default function StudentWorkspace({ lang, studentDemo = false, studentLoc
   const [pagesLoading, setPagesLoading] = useState(false);
   const [selectedPagesForOcr, setSelectedPagesForOcr] = useState<number[]>([]);
   const [pagesActionError, setPagesActionError] = useState('');
+  const [theme, setTheme] = useState<'dark' | 'light'>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('student_theme');
+        if (saved === 'light' || saved === 'dark') return saved;
+      } catch {}
+    }
+    return 'dark';
+  });
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [semesterCollapsed, setSemesterCollapsed] = useState(false);
+  const [createTaskTrigger, setCreateTaskTrigger] = useState(0);
 
   // Native modal dialogs provide keyboard focus containment and restore focus on close.
   useEffect(() => {
@@ -291,48 +304,209 @@ export default function StudentWorkspace({ lang, studentDemo = false, studentLoc
       </div>
     </li>)}</ul>;
   }
-  return <div className="student-shell">
-    <aside className="student-sidebar">
-      <a className="student-brand" href={officeHref}>◈ {t('office')}</a>
-      <p className="student-eyebrow">{t('title')}</p>
+  const formattedTodayBangkok = new Intl.DateTimeFormat(lang === 'vi' ? 'vi-VN' : 'en-US', {
+    timeZone: 'Asia/Bangkok',
+    weekday: 'long',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+  }).format(new Date());
+
+  return <div className={`student-shell ${theme === 'light' ? 'is-light' : ''}`} data-theme={theme}>
+    <aside className={`student-sidebar ${sidebarOpen ? 'is-open' : ''}`}>
+      <div className="student-brand-header">
+        <a className="student-brand" href={officeHref}>
+          <span className="student-brand-dot" />
+          <span>Student OS</span>
+        </a>
+      </div>
       <nav aria-label={t('title')}>
-        <button aria-current={view === 'today' ? 'page' : undefined} onClick={() => chooseView('today')}>{t('today')}</button>
-        <button aria-current={view === 'assistant' ? 'page' : undefined} onClick={() => chooseView('assistant')}>{lang === 'vi' ? 'Trợ lý học tập' : 'Study assistant'}</button>
-        <button aria-current={view === 'logs' ? 'page' : undefined} onClick={() => chooseView('logs')}>{lang === 'vi' ? 'Nhật ký học tập' : 'Study diary'}</button>
-        <button aria-current={view === 'academic' ? 'page' : undefined} onClick={() => chooseView('academic')}>{t('academic')}</button>
-        <button aria-current={view === 'memory' ? 'page' : undefined} onClick={() => chooseView('memory')}>{t('memory.global')}</button>
+        <button aria-current={view === 'today' ? 'page' : undefined} onClick={() => { chooseView('today'); setSidebarOpen(false); }}>
+          <span>{t('today')}</span>
+        </button>
+        <button aria-current={view === 'assistant' ? 'page' : undefined} onClick={() => { chooseView('assistant'); setSidebarOpen(false); }}>
+          <span>{lang === 'vi' ? 'Trợ lý học tập' : 'Study assistant'}</span>
+        </button>
+        <button aria-current={view === 'logs' ? 'page' : undefined} onClick={() => { chooseView('logs'); setSidebarOpen(false); }}>
+          <span>{lang === 'vi' ? 'Nhật ký học tập' : 'Study diary'}</span>
+        </button>
+        <button aria-current={view === 'academic' ? 'page' : undefined} onClick={() => { chooseView('academic'); setSidebarOpen(false); }}>
+          <span>{t('academic')}</span>
+        </button>
+        <button aria-current={view === 'memory' ? 'page' : undefined} onClick={() => { chooseView('memory'); setSidebarOpen(false); }}>
+          <span>{t('memory.global')}</span>
+        </button>
         <a href={officeHref}>{t('projects')}</a>
       </nav>
+
       <div className="student-sidebar-section">
-        <label htmlFor="semester-picker">{t('semester')}</label>
-        <select id="semester-picker" value={semesterId} onChange={(event) => chooseSemester(event.target.value)}>
-          <option value="">—</option>
-          {data?.semesters.filter((s) => showArchived || s.status === 'active').map((s) => <option key={s.id} value={s.id}>{s.academicYear} · {s.name}{s.isActive ? ` · ${t('current')}` : ''}{s.status === 'archived' ? ` · ${t('archived')}` : ''}</option>)}
-        </select>
-        <label className="student-check"><input type="checkbox" checked={showArchived} onChange={(event) => {
-          setShowArchived(event.target.checked);
-          if (!event.target.checked && semester?.status === 'archived') chooseSemester(current?.id || '');
-          else if (!event.target.checked && course?.status === 'archived') chooseSemester(semesterId);
-        }} />{t('showArchived')}</label>
-        <button disabled={busy || !data} onClick={() => setEditor({ kind: 'semester', action: 'create' })}>+ {t('createSemester')}</button>
+        <button
+          type="button"
+          className="student-collapse-header"
+          onClick={() => setSemesterCollapsed(!semesterCollapsed)}
+        >
+          <span>{semester ? `${semester.name} (${courses.length})` : t('semester')}</span>
+          <span className={`student-collapse-icon ${!semesterCollapsed ? 'is-open' : ''}`}>▶</span>
+        </button>
+
+        {!semesterCollapsed && (
+          <>
+            <div className="student-semester-compact-pill">
+              <select
+                id="semester-picker"
+                aria-label={t('semester')}
+                value={semesterId}
+                onChange={(event) => chooseSemester(event.target.value)}
+                style={{ background: 'transparent', border: 'none', color: 'inherit', width: '100%', padding: 0 }}
+              >
+                <option value="">— {t('semester')} —</option>
+                {data?.semesters.filter((s) => showArchived || s.status === 'active').map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name} · {s.academicYear}{s.isActive ? ` · ${t('current')}` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div className="student-course-links">
+              {courses.map((item) => (
+                <button
+                  key={item.id}
+                  className={view === 'academic' && courseId === item.id ? 'is-active' : ''}
+                  onClick={() => { chooseCourse(item); setSidebarOpen(false); }}
+                >
+                  <small>{item.code || t(`status.${item.status}`)}</small>
+                  <span>{item.name}</span>
+                </button>
+              ))}
+            </div>
+
+            <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+              {semester?.status === 'active' && (
+                <button
+                  type="button"
+                  style={{ fontSize: 11, padding: '4px 8px', flex: 1 }}
+                  disabled={busy || !data}
+                  onClick={() => setEditor({ kind: 'course', action: 'create' })}
+                >
+                  + {t('createCourse')}
+                </button>
+              )}
+              <button
+                type="button"
+                style={{ fontSize: 11, padding: '4px 8px' }}
+                disabled={busy || !data}
+                onClick={() => setEditor({ kind: 'semester', action: 'create' })}
+              >
+                + HK
+              </button>
+            </div>
+          </>
+        )}
       </div>
-      <div className="student-course-links">{courses.map((item) => <button key={item.id} aria-current={view === 'academic' && courseId === item.id ? 'page' : undefined} onClick={() => chooseCourse(item)}><span>{item.name}</span><small>{item.code || t(`status.${item.status}`)}</small></button>)}</div>
+
+      <div className="student-sidebar-footer">
+        <span>Offline SQLite</span>
+        <button
+          type="button"
+          className="student-theme-toggle"
+          onClick={() => {
+            const next = theme === 'light' ? 'dark' : 'light';
+            setTheme(next);
+            try { localStorage.setItem('student_theme', next); } catch {}
+          }}
+        >
+          {theme === 'light' ? '🌙 Tối' : '☀️ Sáng'}
+        </button>
+      </div>
     </aside>
+
     <main className="student-main" aria-busy={busy}>
-      <header className="student-page-heading"><div><p className="student-eyebrow">{t('title')}</p><h1>{view === 'assistant' ? (lang === 'vi' ? 'Trợ lý học tập' : 'Study assistant') : view === 'logs' ? (lang === 'vi' ? 'Nhật ký học tập' : 'Study diary') : view === 'memory' ? t('memory.global') : view === 'today' ? t('today') : course?.name || semester?.name || t('academic')}</h1><p>{view === 'logs' ? (lang === 'vi' ? 'Theo dõi tiến độ, ghi chép và biểu đồ học tập 12 tháng' : 'Track progress, notes and 12-month study heatmap') : view === 'memory' ? t('memory.globalHint') : view === 'today' ? t('subtitle') : course?.code || semester?.academicYear}</p></div><a href={officeHref} target="_blank" rel="noopener" title={t('officeActivity.open')}>{t('office')} ↗</a></header>
+      <header className="student-page-heading">
+        <div className="student-topbar-left">
+          <button
+            type="button"
+            className="student-mobile-btn"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            title="Menu"
+          >
+            ☰
+          </button>
+          <h1 className="student-today-date">
+            {view === 'today'
+              ? formattedTodayBangkok
+              : view === 'assistant'
+              ? (lang === 'vi' ? 'Trợ lý học tập' : 'Study assistant')
+              : view === 'logs'
+              ? (lang === 'vi' ? 'Nhật ký học tập' : 'Study diary')
+              : view === 'memory'
+              ? t('memory.global')
+              : course?.name || semester?.name || t('academic')}
+          </h1>
+          {semester && (
+            <span className="student-pill-tag">
+              {semester.name} {semester.academicYear ? `· ${semester.academicYear}` : ''}
+            </span>
+          )}
+        </div>
+
+        <div className="student-topbar-actions">
+          {view === 'today' && (
+            <button
+              type="button"
+              className="student-primary"
+              onClick={() => setCreateTaskTrigger((c) => c + 1)}
+            >
+              <span>+</span> {lang === 'vi' ? 'Thêm việc học' : 'Add task'}
+            </button>
+          )}
+          <a href={officeHref} target="_blank" rel="noopener" title={t('officeActivity.open')}>
+            {t('office')} ↗
+          </a>
+        </div>
+      </header>
+
       {error && <div role="alert" className="student-error">{t(`errors.${error}`)} <button onClick={() => window.location.reload()}>{t('retry')}</button></div>}
       <div role="status" className="student-notice">{busy ? t('working') : notice ? t(notice) : ''}</div>
       {(studentDemo || studentLocal) && <StudentDemoPanel lang={lang} local={studentLocal} onSeed={(result) => {
         setData(result); setSemesterId((value) => value || result.semesters.find((item) => item.isActive)?.id || result.semesters[0]?.id || ''); setRevision((value) => value + 1);
       }} />}
-      {!data ? <p>{t('loading')}</p> : view === 'assistant' ? <StudyAssistant lang={lang} courses={data.courses} /> : view === 'memory' ? <section className="student-panel"><MemoryWorkspace lang={lang} target={{ scope: 'global' }} /></section> : view === 'logs' ? <StudyLogWorkspace lang={lang} courses={data.courses} /> : view === 'today' ? <>
-        <StudyTaskWorkspace lang={lang} courses={data.courses} />
-        <section className="student-hero"><p className="student-eyebrow">{t('activeSemester')}</p><h2>{current?.name || t('noActive')}</h2><p>{current?.academicYear || t('todayHint')}</p>
-          <button className="student-primary" onClick={() => current ? chooseSemester(current.id) : setEditor({ kind: 'semester', action: 'create' })}>{current ? t('academic') : t('createSemester')} →</button>
-        </section>
-        <section><h2>{t('courses')}</h2><div className="student-cards">{data.courses.filter((c) => c.semesterId === current?.id && c.status === 'active').map((item) => <button className="student-card" key={item.id} onClick={() => chooseCourse(item)}><small>{item.code || t('academic')}</small><h3>{item.name}</h3><span>{t('overview')} →</span></button>)}</div></section>
-        <section className="student-panel"><h2>{t('recentMaterials')}</h2>{data.recentMaterials.length ? materialList(data.recentMaterials) : <p>{t('noRecent')}</p>}</section>
-      </> : <>
+      {!data ? <p>{t('loading')}</p> : view === 'assistant' ? <StudyAssistant lang={lang} courses={data.courses} /> : view === 'memory' ? <section className="student-panel"><MemoryWorkspace lang={lang} target={{ scope: 'global' }} /></section> : view === 'logs' ? <StudyLogWorkspace lang={lang} courses={data.courses} /> : view === 'today' ? (
+        <div className="student-today-grid">
+          {/* Main Column */}
+          <div className="student-col-main">
+            <StudyTaskWorkspace lang={lang} courses={data.courses} createTrigger={createTaskTrigger} />
+
+            <section className="student-panel">
+              <div className="student-section-heading">
+                <h2>{lang === 'vi' ? 'Các môn để tiếp tục học' : 'Continue Studying'}</h2>
+                <button type="button" className="student-btn-subtle" onClick={() => chooseView('academic')}>
+                  {lang === 'vi' ? 'Tất cả học phần →' : 'All courses →'}
+                </button>
+              </div>
+              <div className="student-continue-grid">
+                {data.courses.filter((c) => c.semesterId === (semesterId || current?.id) && c.status === 'active').map((item) => (
+                  <button key={item.id} type="button" className="student-continue-card" onClick={() => chooseCourse(item)}>
+                    <div>
+                      <span className="student-continue-code">{item.code || 'COURSE'}</span>
+                      <h3 className="student-continue-name">{item.name}</h3>
+                    </div>
+                    <div className="student-continue-footer">
+                      {lang === 'vi' ? 'Tiếp tục học →' : 'Continue →'}
+                    </div>
+                  </button>
+                ))}
+              </div>
+            </section>
+          </div>
+
+          {/* Side Column */}
+          <div className="student-col-side">
+            <TodayWeeklyWidget lang={lang} />
+            <TodayRecentLogsWidget lang={lang} courses={data.courses} />
+          </div>
+        </div>
+      ) : <>
         {!semester ? <section className="student-panel"><p>{t('noSemester')}</p><button onClick={() => setEditor({ kind: 'semester', action: 'create' })}>{t('createSemester')}</button></section> : !course ? <>
           {actions('semester', semester)}
           <section className="student-panel"><div className="student-section-heading"><h2>{t('courses')}</h2>{semester.status === 'active' && <button className="student-primary" disabled={busy} onClick={() => setEditor({ kind: 'course', action: 'create' })}>+ {t('createCourse')}</button>}</div>
@@ -507,4 +681,93 @@ export default function StudentWorkspace({ lang, studentDemo = false, studentLoc
       </div>
     </dialog>}
   </div>;
+}
+
+function TodayWeeklyWidget({ lang }: { lang: string }) {
+  const isVi = lang === 'vi';
+  const [summary, setSummary] = useState<{ totalMinutes: number; activeDays: number } | null>(null);
+
+  useEffect(() => {
+    void apiStudy.getSummary({ months: 1 }).then((res) => {
+      setSummary({ totalMinutes: res.totalMinutes, activeDays: res.stats?.activeDays || 0 });
+    }).catch(() => {});
+  }, []);
+
+  const hours = summary ? (summary.totalMinutes / 60).toFixed(1) : '0.0';
+
+  return (
+    <section className="student-panel">
+      <div className="student-section-heading">
+        <h2>{isVi ? 'Tổng quan tuần' : 'Weekly Overview'}</h2>
+      </div>
+      <div className="student-week-summary-row">
+        <div className="student-stat-box">
+          <div className="student-stat-value">{hours}h</div>
+          <div className="student-stat-label">{isVi ? 'Thời gian học' : 'Study time'}</div>
+        </div>
+        <div className="student-stat-box">
+          <div className="student-stat-value">{summary?.activeDays || 0}</div>
+          <div className="student-stat-label">{isVi ? 'Ngày có hoạt động' : 'Active days'}</div>
+        </div>
+      </div>
+      <div className="student-week-bars">
+        {['T2', 'T3', 'T4', 'T5', 'T6', 'T7', 'CN'].map((d, i) => (
+          <div key={d} className="student-day-col">
+            <div className="student-bar-track">
+              <div className="student-bar-fill" style={{ height: `${(i % 3 + 1) * 28}%` }} />
+            </div>
+            <span className="student-day-label">{d}</span>
+          </div>
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function TodayRecentLogsWidget({ lang, courses }: { lang: string; courses: Course[] }) {
+  const isVi = lang === 'vi';
+  const [recentLogs, setRecentLogs] = useState<{ id: string; title: string; courseId?: string | null; studyDate: string; durationMinutes: number }[]>([]);
+
+  useEffect(() => {
+    void apiStudy.listLogs({ limit: 4 }).then((res) => {
+      const list = res.items || res.logs || [];
+      setRecentLogs(list.map((l) => ({
+        id: l.id,
+        title: l.title,
+        courseId: l.courseId,
+        studyDate: l.studyDate,
+        durationMinutes: l.durationMinutes || 0,
+      })));
+    }).catch(() => {});
+  }, []);
+
+  return (
+    <section className="student-panel">
+      <div className="student-section-heading">
+        <h2>{isVi ? 'Nhật ký gần đây' : 'Recent Study Logs'}</h2>
+      </div>
+      {recentLogs.length === 0 ? (
+        <p style={{ fontSize: 13, color: 'var(--student-text-faint)', margin: 0 }}>
+          {isVi ? 'Chưa có nhật ký học tập nào.' : 'No study logs recorded yet.'}
+        </p>
+      ) : (
+        <div className="student-log-list-mini">
+          {recentLogs.slice(0, 4).map((log) => {
+            const courseName = courses.find((c) => c.id === log.courseId)?.name;
+            return (
+              <div key={log.id} className="student-log-item-mini">
+                <div>
+                  <div className="student-log-title-mini">{log.title}</div>
+                  <span style={{ fontSize: 11, color: 'var(--student-text-faint)' }}>
+                    {log.studyDate} {courseName ? `· ${courseName}` : ''}
+                  </span>
+                </div>
+                <span className="student-log-time-mini">{log.durationMinutes}m</span>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
 }

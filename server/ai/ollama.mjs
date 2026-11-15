@@ -14,7 +14,7 @@ export function createOllama(options = {}) {
   catch { throw new StudentError('ollamaConfig'); }
   if (base.protocol !== 'http:' || !['localhost', '127.0.0.1', '[::1]'].includes(base.hostname) || base.username || base.password || base.search || base.hash || base.pathname !== '/') throw new StudentError('ollamaConfig');
   const fetcher = options.fetch || fetch;
-  const chatModel = options.chatModel || process.env.OLLAMA_CHAT_MODEL || 'qwen3:4b';
+  const chatModel = options.chatModel || process.env.OLLAMA_CHAT_MODEL || 'qwen3.5:4b';
   const embedModel = options.embeddingModel || process.env.OLLAMA_EMBEDDING_MODEL || 'embeddinggemma:latest';
   const defaultCloudModel = options.cloudModel || process.env.OLLAMA_CLOUD_CHAT_MODEL || 'glm-5.3-flash:cloud';
   if ([chatModel, embedModel].some((model) => !/^[a-zA-Z0-9_./:-]{1,120}$/.test(model) || (model.includes('/') && !model.startsWith('ollama/')))) throw new StudentError('ollamaConfig');

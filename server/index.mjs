@@ -347,6 +347,9 @@ const pub = (s) => ({ id: s.id, pid: s.pid, name: s.name, title: s.title || '', 
   pins: pinsOf(s.sid).length,
   undo: s.sid ? undo.info(s.sid) : null,
   git: gitOf(s),
+  isCourse: !!s.isCourse,
+  courseId: s.courseId,
+  courseCode: s.courseCode,
   usage: s.usage?.model ? { cost: Math.round(s.usage.cost * 100) / 100, ...liveCtx(s), model: s.usage.model, out: s.usage.out } : null });
 function gitOf(s) { const r = s.cwd && git.repoOf(s.cwd); return r ? { repo: r.name, branch: r.branch, dirty: r.dirty, ahead: r.ahead, ci: r.ci, ciName: r.ciName, ciUrl: r.ciUrl, born: r.born || null } : null; }
 // context: exact from the status line while it reports (last 15 min), else estimated from the transcript
@@ -596,7 +599,18 @@ let chat = null, chatSaveT = null;
 const STAFF_NAME = { __reception: 'people.staff.receptionist', __hr: 'people.staff.hr', __cleaner: 'people.staff.cleaner', __accountant: 'people.accountant.name', __guard: 'people.guard.name', __director: 'people.director', __courier: 'people.staff.shipper', __claude: 'chat.claudeTag' };   // (__claude: a new conversation's answers, before it has a person)
 chat = createChatEngine({
   tr, now: () => Date.now(),
-  members: () => [...sessions.values()].map((s) => ({ id: s.id, name: s.title || s.name || 'claude', status: s.status, task: s.lastPrompt ? clip(oneLine(unwrapPaste(s.lastPrompt)), 80) : '', last: s.last, project: path.basename(s.cwd || '') })),
+  members: () => [...sessions.values()].map((s) => ({
+    id: s.id,
+    name: s.name || s.title || 'claude',
+    title: s.title || s.name || '',
+    status: s.status,
+    task: s.lastPrompt ? clip(oneLine(unwrapPaste(s.lastPrompt)), 80) : '',
+    last: s.last,
+    project: path.basename(s.cwd || ''),
+    isCourse: !!s.isCourse,
+    courseId: s.courseId,
+    courseCode: s.courseCode,
+  })),
   staffName: (key) => (STAFF_NAME[key] ? tr(STAFF_NAME[key]) : null),
   store: {
     load: () => { try { return JSON.parse(fs.readFileSync(CHAT_FILE, 'utf8')); } catch { return null; } },
@@ -604,6 +618,58 @@ chat = createChatEngine({
   },
   emit: (op, x) => broadcast(op === 'typing' ? { k: 'chat', op, typing: x } : { k: 'chat', op, m: x, pinned: chat?.state.pinned ?? null }),
   act: (what) => broadcast({ k: 'chatact', what }),
+  onCourseQuestion: async ({ member, question, quote }) => {
+    if (!student) return;
+    const courseId = member.courseId || member.id.replace(/^course:/, '');
+    const sess = sessions.get(member.id);
+    if (sess) {
+      sess.status = 'work';
+      sess.last = { type: 'read', label: tr('student.tutorWorking') || 'Đọc tài liệu môn học' };
+      broadcast({ k: 'sess', s: pub(sess) });
+    }
+    chat.working(member.id, true);
+
+    try {
+      await student.sendChat({
+        courseId,
+        message: question,
+        provider: 'ollama',
+        mode: 'expanded',
+      });
+
+      const hist = student.chatHistory(courseId);
+      const lastTurn = hist.turns?.at(-1);
+      const lastMsg = lastTurn?.messages?.findLast((m) => m.role === 'assistant');
+      let answerText = lastMsg?.content || tr('chat.task.doneEmpty');
+
+      if (lastMsg?.sources && lastMsg.sources.length > 0) {
+        const srcList = lastMsg.sources.slice(0, 3).map((s) => s.documentTitle || (s.pageNumber ? `trang ${s.pageNumber}` : '')).filter(Boolean);
+        if (srcList.length > 0) {
+          answerText += `\n\n📖 [Nguồn: ${srcList.join(', ')}]`;
+        }
+      }
+
+      chat.say(member.id, answerText, {
+        reply: quote,
+        now: false,
+        tag: 'tutor',
+        long: true,
+      });
+    } catch (err) {
+      console.error('Tutor chat error:', err);
+      const errMsg = err?.code === 'aiKeyMissing'
+        ? 'Chưa kết nối được với AI Provider cục bộ. Vui lòng kiểm tra lại dịch vụ Ollama.'
+        : (err?.message || 'Có lỗi xảy ra khi truy vấn tài liệu môn học.');
+      chat.say(member.id, `⚠️ ${errMsg}`, { reply: quote, now: true });
+    } finally {
+      chat.working(member.id, false);
+      if (sess) {
+        sess.status = 'rest';
+        sess.last = null;
+        broadcast({ k: 'sess', s: pub(sess) });
+      }
+    }
+  },
 });
 setInterval(() => chat.clock(), 30_000).unref();
 const chatOut = () => ({ ok: true, msgs: chat.state.msgs, pinned: chat.state.pinned, typing: chat.state.typing });
@@ -2430,9 +2496,71 @@ student.activity.subscribe((event) => broadcast({ k: 'student', event }));
 process.once('exit', () => student.close());
 const studentRoutes = createStudentRoutes({ service: student, authorized, sameOrigin: sameOriginOf, ...(STUDENT_DEMO && { demoSeed: createStudentDemoSeed(student) }) });
 
+function syncCourseSessions() {
+  if (!student) return;
+  let activeCourses = [];
+  try {
+    activeCourses = student.db.prepare("SELECT * FROM courses WHERE status='active'").all();
+  } catch {
+    return;
+  }
+  const activeCourseIds = new Set(activeCourses.map((c) => c.id));
+
+  // Xóa session môn học bị archive hoặc xóa
+  for (const [key, s] of sessions.entries()) {
+    if (s.isCourse && !activeCourseIds.has(s.courseId)) {
+      sessions.delete(key);
+      broadcast({ k: 'sess', s: { id: s.id, gone: true } });
+    }
+  }
+
+  // Thêm hoặc cập nhật session môn học active
+  for (const c of activeCourses) {
+    const key = `course:${c.id}`;
+    let s = sessions.get(key);
+    if (!s) {
+      s = {
+        id: key,
+        key,
+        sid: null,
+        pid: null,
+        name: c.name,
+        title: c.code ? `${c.code} · ${c.name}` : c.name,
+        courseId: c.id,
+        courseCode: c.code || '',
+        isCourse: true,
+        cwd: path.join(DATA_DIR, 'student', 'materials', c.id),
+        link: `/student?courseId=${c.id}`,
+        desk: freeDesk(),
+        status: 'rest',
+        busy: false,
+        lastPrompt: '',
+        taskStart: 0,
+        counts: { read: 0, edit: 0, cmd: 0, web: 0 },
+        subs: {},
+        last: null,
+        fromFile: false,
+        lastEventAt: Date.now(),
+        createdAt: Date.now(),
+      };
+      sessions.set(key, s);
+      broadcast({ k: 'sess', s: pub(s) });
+    } else {
+      let changed = false;
+      if (s.name !== c.name) { s.name = c.name; changed = true; }
+      const newTitle = c.code ? `${c.code} · ${c.name}` : c.name;
+      if (s.title !== newTitle) { s.title = newTitle; changed = true; }
+      if (changed) broadcast({ k: 'sess', s: pub(s) });
+    }
+  }
+}
+
+student.onCourseChange?.(() => syncCourseSessions());
+syncCourseSessions();
+
 const server = http.createServer((req, res) => {
   const url = new URL(req.url, 'http://x');
-  if (STUDENT_LEARNING && (/^\/(?:event|hook(?:\/|$)|v1\/(?:metrics|logs))/.test(url.pathname) || /^\/api\/(?:tasks|rc|accounts|models|prompt|quick|chat|tunnel)(?:\/|$)/.test(url.pathname))) {
+  if (STUDENT_LEARNING && (/^\/(?:event|hook(?:\/|$)|v1\/(?:metrics|logs))/.test(url.pathname) || /^\/api\/(?:tasks|rc|accounts|models|prompt|quick|tunnel)(?:\/|$)/.test(url.pathname))) {
     req.resume(); res.writeHead(404).end(); return;
   }
   if (req.method === 'POST' && url.pathname === '/event') {
@@ -2971,7 +3099,7 @@ const server = http.createServer((req, res) => {
   if (req.method !== 'GET' && req.method !== 'HEAD') { res.writeHead(405).end(); return; }
   if (url.pathname === '/health') { res.writeHead(200, { 'Content-Type': 'text/plain' }).end('ok'); return; }
   if (!authorized(req, url)) {
-    if (['/', '/index.html', '/student', '/student/'].includes(url.pathname)) res.writeHead(303, { Location: '/pin' }).end();
+    if (['/', '/index.html'].includes(url.pathname) || url.pathname.startsWith('/student')) res.writeHead(303, { Location: '/pin' }).end();
     else json(res, 401, { ok: false, message: tr('server.pin.needed') });
     return;
   }
@@ -3071,7 +3199,7 @@ const server = http.createServer((req, res) => {
     sysSnapshot({ open: url.searchParams.has('open') }).then((snap) => json(res, 200, { ...snap, claude: claudeRows(snap.claude), auto: { hours: prefs.autoClose(), last: autoLast[0] || null } })).catch((err) => json(res, 500, { error: String(err.message || err) }));
     return;
   }
-  if (['/', '/index.html', '/student', '/student/'].includes(url.pathname)) {
+  if (['/', '/index.html'].includes(url.pathname) || url.pathname.startsWith('/student')) {
     // Office and Student pages are rendered by Next.js; auth/language headers precede the response.
     res.setHeader('Referrer-Policy', 'no-referrer');
     // a phone in by a token link gets a cookie; a remembered one, renewed once a month, so it stays while it's used

@@ -9,6 +9,7 @@ import StudyReminderBanner from './StudyReminderBanner';
 interface StudyTaskWorkspaceProps {
   lang?: string;
   courses: { id: string; name: string; code?: string }[];
+  createTrigger?: number;
 }
 
 const PRIORITY_LABELS = {
@@ -22,7 +23,7 @@ const PRIORITY_BADGES: Record<TaskPriority, string> = {
   low: 'student-badge-gray',
 };
 
-export default function StudyTaskWorkspace({ lang = 'vi', courses }: StudyTaskWorkspaceProps) {
+export default function StudyTaskWorkspace({ lang = 'vi', courses, createTrigger }: StudyTaskWorkspaceProps) {
   const isVi = lang === 'vi';
   const pLabels = isVi ? PRIORITY_LABELS.vi : PRIORITY_LABELS.en;
 
@@ -64,6 +65,24 @@ export default function StudyTaskWorkspace({ lang = 'vi', courses }: StudyTaskWo
     month: '2-digit',
     day: '2-digit',
   }).format(new Date());
+
+  useEffect(() => {
+    if (createTrigger && createTrigger > 0) {
+      const timer = setTimeout(() => {
+        setEditingTask(null);
+        setFormTitle('');
+        setFormDate(todayBangkok);
+        setFormTime('');
+        setFormDuration('');
+        setFormPriority('medium');
+        setFormCourseId('');
+        setFormNotes('');
+        setFormError('');
+        setCreateModalOpen(true);
+      }, 0);
+      return () => clearTimeout(timer);
+    }
+  }, [createTrigger, todayBangkok]);
 
   useEffect(() => {
     let active = true;

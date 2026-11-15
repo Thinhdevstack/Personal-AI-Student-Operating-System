@@ -15,6 +15,11 @@ export default async function TopBar() {
         <button type="button" data-view="2d" aria-pressed="false" title={t('ui.topBar.view2d')}>2D</button>
       </div>
       <div className="tb-actions">
+        <span className="tb-btn mac-pill" style={{ pointerEvents: 'none', background: 'rgba(61, 220, 132, 0.12)', borderColor: 'rgba(61, 220, 132, 0.4)' }} title="Ollama Local AI (qwen3.5:4b & embeddinggemma)">
+          <i className="lvl" style={{ background: '#10b981', boxShadow: '0 0 0 3px rgba(16, 185, 129, 0.2)' }}></i>
+          <span className="mp-label" style={{ color: '#8fedb8', fontWeight: 600 }}>Ollama Local</span>
+          <span className="mp-val" style={{ color: '#e8ecf4' }}>qwen3.5:4b</span>
+        </span>
         {process.env.OFFICE_STATIC !== '1' && <a className="tb-btn" href={`/student?lang=${t.lang}`}>{t('student.academic')}</a>}
         <div className="pop-wrap">
           <button id="btn-plan" className="tb-btn mac-pill plan-pill" type="button" data-level="normal" aria-expanded="false" aria-controls="pop-plan" hidden><i className="lvl"></i><span className="mp-label">{t('ui.topBar.plan')}</span><span className="mp-val" id="plan-mini">{t('ui.topBar.reading')}</span><span className="mp-bar"><b id="plan-bar"></b></span></button>
