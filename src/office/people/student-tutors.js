@@ -1,6 +1,6 @@
 // Student tutors reuse the permanent course desk workers in the office.
 import { STATIC, STUDENT_LEARNING, el, replay } from '../core/env.js';
-import { workers } from './workers.js';
+import { workers, sessions } from './workers.js';
 import { t } from '../../i18n/index.js';
 import { createStudentOfficeAdapter } from '../adapters/student-events.js';
 
@@ -36,7 +36,16 @@ function createActor(event) {
     },
     arrived() { return true; },
     settle() {},
-    rest() { activity = null; card.dataset.animation = 'idle'; w.anim = 'sleep'; w.hush(); },
+    rest() {
+      activity = null;
+      card.dataset.animation = 'idle';
+      const sess = sessions.get(w.id);
+      // Chỉ cho nhân vật nghỉ khi server báo session đã xong hoàn toàn
+      if (!sess || sess.status !== 'work') {
+        w.anim = 'sleep';
+        w.hush();
+      }
+    },
     inspect() { return { actorId: w.id, anim: w.anim, phase: w.phase }; },
     dispose() { card.remove(); actors.delete(event.courseId); },
     w,

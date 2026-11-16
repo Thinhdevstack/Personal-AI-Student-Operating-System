@@ -624,7 +624,9 @@ chat = createChatEngine({
     const sess = sessions.get(member.id);
     if (sess) {
       sess.status = 'work';
+      sess.busy = true;
       sess.taskStart = Date.now();
+      sess.lastEventAt = Date.now();
       sess.lastPrompt = question;
       sess.last = { type: 'read', label: tr('student.tutorWorking') || 'Đọc tài liệu môn học' };
       broadcast({ k: 'sess', s: pub(sess) });
@@ -666,7 +668,9 @@ chat = createChatEngine({
     } finally {
       chat.working(member.id, false);
       if (sess) {
+        sess.busy = false;
         sess.status = 'rest';
+        sess.lastEventAt = Date.now();
         sess.last = null;
         broadcast({ k: 'sess', s: pub(sess) });
       }
@@ -1045,7 +1049,7 @@ setInterval(() => {
   for (const [key, s] of sessions) {
     // Claude went quiet without a Stop event (e.g. interrupted): let the chibi rest. A long tool run (a build, a test
     // suite) is not quiet; a tool still open after 10 minutes probably lost its PostToolUse.
-    if (s.status === 'work' && !s.busy && (!s.inTool || now - s.lastEventAt > 600_000) && now - s.lastEventAt > 20_000) { s.status = 'rest'; broadcast({ k: 'sess', s: pub(s) }); }
+    if (!s.isCourse && s.status === 'work' && !s.busy && (!s.inTool || now - s.lastEventAt > 600_000) && now - s.lastEventAt > 20_000) { s.status = 'rest'; broadcast({ k: 'sess', s: pub(s) }); }
     // Sessions seen only through hooks (no session file) leave after 10 quiet minutes.
     if (!s.fromFile && !s.isCourse && now - s.lastEventAt > 600_000) dropSession(key, s);
     // A subagent that went quiet is finished: 90 s once its session rests, 5 min while the session still works.

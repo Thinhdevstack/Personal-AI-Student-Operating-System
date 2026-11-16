@@ -319,6 +319,10 @@ export function setup() {
       if (this.onBreak) return;   // out of Claude (life/quota.js): on a break until the limit resets
       if (this.dailyLife(s) || this.nightOut(s)) return;
       if (this.anim === 'hand' && s.status !== 'wait') { this.anim = ANIM_AT[this.station] || 'idle'; if (this.lastSay) this.say(this.lastSay.type, this.lastSay.text); }
+      if (s?.status === 'work' && this.anim !== 'type' && this.anim !== 'wake' && this.phase !== 'walk' && !this.chore && !this.want) {
+        this.anim = ANIM_AT[this.station] || 'type';
+        if (s.last && !this.bubbleObj.visible) this.say(s.last.type, s.last.label || verb(s.last));
+      }
       if (s.status === 'rest' && this.anim !== 'sleep' && state.sim > this.restAt) this.goHomeAndRest();
       if (s.status === 'rest' && this.restAt === Infinity && this.anim !== 'sleep' && this.anim !== 'coffee' && state.sim > this.dwellUntil + 20) this.goHomeAndRest();
     }
