@@ -336,7 +336,7 @@ function freeDesk() {
   return -1;
 }
 const pubSub = (x) => ({ id: x.id, type: x.type, desc: x.desc || '', last: x.last || null, startedAt: x.startedAt, endedAt: x.endedAt || null, steps: x.steps || 0, model: x.model || '' });
-const pub = (s) => ({ id: s.id, pid: s.pid, name: s.name, title: s.title || '', dir: tilde(s.cwd), link: s.link, desk: s.desk, status: s.status, lastPrompt: s.lastPrompt && oneLine(unwrapPaste(s.lastPrompt)),
+const pub = (s) => ({ id: s.id, pid: s.pid, name: s.name, title: s.title || '', dir: s.isCourse ? (s.courseCode || s.name) : tilde(s.cwd), link: s.link, desk: s.desk, status: s.status, lastPrompt: s.lastPrompt && oneLine(unwrapPaste(s.lastPrompt)),
   taskStart: s.taskStart, counts: s.counts, subs: Object.values(s.subs).map(pubSub), doneSubs: (s.doneSubs || []).map(pubSub), last: s.last, acct: acctOf(s),
   entry: s.entry || '', moved: s.parked ? { to: acctShown(s.parked.to), at: s.parked.at } : null,
   lastAt: s.lastEventAt || s.createdAt, doneAt: s.doneAt || 0, todos: s.todos || [], lastReply: s.lastReply || '', origin: s.origin || '',
@@ -624,6 +624,8 @@ chat = createChatEngine({
     const sess = sessions.get(member.id);
     if (sess) {
       sess.status = 'work';
+      sess.taskStart = Date.now();
+      sess.lastPrompt = question;
       sess.last = { type: 'read', label: tr('student.tutorWorking') || 'Đọc tài liệu môn học' };
       broadcast({ k: 'sess', s: pub(sess) });
     }
@@ -934,7 +936,10 @@ function noteDir(dir) {
 
 /* ---------- session discovery ---------- */
 let scanning = null;
-function scanSessions() { return STUDENT_LEARNING ? Promise.resolve() : (scanning ??= doScan().finally(() => { scanning = null; })); }
+function scanSessions() {
+  if (typeof syncCourseSessions === 'function') syncCourseSessions();
+  return STUDENT_LEARNING ? Promise.resolve() : (scanning ??= doScan().finally(() => { scanning = null; }));
+}
 // The pid in a session file is that session only if the process started when the session did (a reboot reuses
 // pids: without this a stale file shows a ghost). Start times come from ps, once per pid. Idea from W17ant (MIT).
 const procStart = new Map();   // pid -> start (ms)
@@ -1027,6 +1032,7 @@ async function recallTask(s) {
   broadcast({ k: 'sess', s: pub(s) });
 }
 function dropSession(key, s) {
+  if (s.isCourse) return;
   if (s.fromFile && !taskSids.has(s.sid) && !s.viaOffice) chat.onLeft(s.title || s.name);
   sessions.delete(key);
   if (s.sid && sidToKey.get(s.sid) === key) sidToKey.delete(s.sid);
@@ -1041,7 +1047,7 @@ setInterval(() => {
     // suite) is not quiet; a tool still open after 10 minutes probably lost its PostToolUse.
     if (s.status === 'work' && !s.busy && (!s.inTool || now - s.lastEventAt > 600_000) && now - s.lastEventAt > 20_000) { s.status = 'rest'; broadcast({ k: 'sess', s: pub(s) }); }
     // Sessions seen only through hooks (no session file) leave after 10 quiet minutes.
-    if (!s.fromFile && now - s.lastEventAt > 600_000) dropSession(key, s);
+    if (!s.fromFile && !s.isCourse && now - s.lastEventAt > 600_000) dropSession(key, s);
     // A subagent that went quiet is finished: 90 s once its session rests, 5 min while the session still works.
     for (const [id, sub] of Object.entries(s.subs)) if (now - sub.seenAt > (s.status === 'rest' ? 90_000 : 300_000)) { finishSub(s, id, now); broadcast({ k: 'sess', s: pub(s) }); }
   }

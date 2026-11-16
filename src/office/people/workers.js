@@ -479,6 +479,7 @@ export function setup() {
     /* Late at night, after a long rest: home by the lift, the desk left empty. Back as soon as there is work, or in the
        morning (from 8:00, a few minutes apart). */
     lateRest(s) {   // from 21:00 (each at their own minute, up to 21:25) to 6:00, resting for half an hour or more
+      if (s?.isCourse) return false;
       if (this.sub || !s || s.status !== 'rest' || s.bg?.length || replay.on) return false;
       const d = officeNow(), h = d.getHours();
       return (h > 21 || h < 6 || (h === 21 && d.getMinutes() >= hash(this.id) % 25)) && nowMs() - (s.doneAt || s.lastAt || nowMs()) >= 30 * 60e3;

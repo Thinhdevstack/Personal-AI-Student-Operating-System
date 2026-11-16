@@ -21,7 +21,7 @@ export function setConn(on) { const c = $('conn'); c.dataset.state = on ? 'on' :
    the nearest free area. Areas are remembered on this device, so a project comes back to the same desks tomorrow; an
    area someone else remembers is the last one handed to a newcomer. Only when every area is taken do projects share. */
 const deskOf = new Map(), rowTeam = new Map();
-const projOf = (s) => s?.git?.repo || String(s?.dir || '').split('/').filter(Boolean).pop() || tr('activity.live.otherProject');
+const projOf = (s) => (s?.isCourse ? (s.courseCode || s.name) : (s?.git?.repo || String(s?.dir || '').replace(/\\/g, '/').split('/').filter(Boolean).pop() || tr('activity.live.otherProject')));
 // partners sit face to face across a pod's screen (back-left, then front-right…): one faces the camera, the other's
 // screens do; a room fills its first pod before the second
 const SEAT_ORDER = [0, 3, 1, 2, 4, 7, 5, 6];
@@ -82,9 +82,14 @@ export function updateTeamTags() {
     if (joined && twin < u) return;
     if (joined) tg.o.position.x = (DESKS[UNITS[u].desks[0]].x + DESKS[UNITS[twin].desks[0]].x) / 2 + 1.72 * Math.sign(DESKS[UNITS[twin].desks[0]].x - DESKS[UNITS[u].desks[0]].x);
     else if (UNITS[u].pod != null) tg.o.position.x = PODS[UNITS[u].pod][0] + 1.72 * UNITS[u].side;
-    tg.txt.textContent = tr('activity.live.team', { name, more: projs.length > 1 ? ` +${projs.length - 1}` : '', n: people.length });
+    const isAcademic = people.some((s) => s.isCourse);
+    tg.txt.textContent = isAcademic
+      ? (name ? `Môn: ${name}` : 'Môn học')
+      : tr('activity.live.team', { name, more: projs.length > 1 ? ` +${projs.length - 1}` : '', n: people.length });
     tg.dot.style.background = colour;
-    tg.o.element.title = projs.length > 1 ? tr('activity.live.teamShared', { name, others: projs.slice(1).join(', ') }) : tr('activity.live.teamTitle', { name });
+    tg.o.element.title = isAcademic
+      ? `Bàn học môn ${name}`
+      : (projs.length > 1 ? tr('activity.live.teamShared', { name, others: projs.slice(1).join(', ') }) : tr('activity.live.teamTitle', { name }));
   });
 }
 export function upsertSession(s, walkIn = true) {
@@ -95,6 +100,13 @@ export function upsertSession(s, walkIn = true) {
   if (!w && !leavingIds.has(s.id)) w = addWorker(s, walkIn && had === false && state.connectedOnce);
   if (w) {
     w.setName(short(dn(s), 26));
+    if (s.status === 'work' && w.anim !== 'type' && w.phase !== 'walk') {
+      w.anim = 'type';
+      if (s.last) w.say(s.last.type, s.last.label || verb(s.last));
+    } else if (s.status === 'rest' && w.anim === 'type') {
+      w.anim = 'sleep';
+      w.hush();
+    }
     const live = new Set((s.subs || []).map((x) => x.id));
     for (const [aid, sw] of subs) if (sw.parent === w && !live.has(aid)) dropSub(aid);
     for (const x of s.subs || []) { if (!subs.has(x.id)) spawnSub(w, x.id, x.type); const sw = subs.get(x.id); if (sw && x.desc) sw.desc = x.desc; sw?.setModel(x.model); }

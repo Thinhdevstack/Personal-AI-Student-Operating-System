@@ -164,10 +164,10 @@ export default {
     searchLabel: 'Tìm phiên làm việc',
   },
   stage: {
-    chips: 'Phiên làm việc',
-    lite: 'Các phiên dạng danh sách',
-    emptyTitle: 'Chưa có phiên Claude nào đang mở',
-    emptyText: 'Mở Claude Code trong Antigravity, nhân vật sẽ đi vào văn phòng.',
+    chips: 'Môn học & Phiên làm việc',
+    lite: 'Các môn học dạng danh sách',
+    emptyTitle: 'Chưa có môn học nào đang mở',
+    emptyText: 'Tạo môn học trong phần Học tập, trợ giảng sẽ vào bàn học.',
   },
   timeline: {
     title: 'Dòng thời gian',

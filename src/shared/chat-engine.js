@@ -45,9 +45,12 @@ export function createChatEngine(ctx) {
     const m = members().find((x) => x.id === key);
     return m ? { key, name: m.name } : null;
   }
-  const resting = () => members().filter((m) => m.status === 'rest').map((m) => m.id);
-  const anyone = (but = []) => { const r = resting().filter((id) => !but.includes(id)); const pool = r.length ? r : members().map((m) => m.id).filter((id) => !but.includes(id)); return pool.length ? pickOne(pool) : null; };
-  const some = (n, but = []) => members().map((m) => m.id).filter((id) => !but.includes(id)).sort(() => Math.random() - 0.5).slice(0, n);
+  const isTutor = (m) => m?.isCourse || m?.id?.startsWith('course:');
+  const nonTutors = () => members().filter((m) => !isTutor(m));
+  const resting = () => nonTutors().filter((m) => m.status === 'rest').map((m) => m.id);
+  const anyone = (but = []) => { const r = resting().filter((id) => !but.includes(id)); const pool = r.length ? r : nonTutors().map((m) => m.id).filter((id) => !but.includes(id)); return pool.length ? pickOne(pool) : null; };
+  const some = (n, but = []) => nonTutors().map((m) => m.id).filter((id) => !but.includes(id)).sort(() => Math.random() - 0.5).slice(0, n);
+  let lastTutorCourseId = null;
 
   /* ---------- messages ---------- */
   function add(m) {
@@ -225,39 +228,73 @@ export function createChatEngine(ctx) {
         }
         if (matchedCourse) break;
       }
+
       // 2. Nếu reply vào tin nhắn của môn học
       if (!matchedCourse && r && courseMembers.some((cm) => cm.id === r.from)) {
         matchedCourse = courseMembers.find((cm) => cm.id === r.from);
       }
-      // 3. Tự nhận diện môn qua từ khóa trong câu hỏi
+
+      // 3. Nhận diện theo mã môn (courseCode, ví dụ 'OOP', 'Database', 'CSDL', 'OS') dạng từ độc lập
       if (!matchedCourse) {
         for (const cm of courseMembers) {
-          const names = [cm.name, cm.courseCode].filter(Boolean);
-          // Tách thêm các cụm từ con của tên môn (ví dụ 'Hệ điều hành' từ 'Nguyên lí Hệ điều hành')
+          if (!cm.courseCode) continue;
+          const codeEsc = cm.courseCode.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          const codeRegex = new RegExp(`(^|[\\s,?.!;:()/"'-])${codeEsc}([\\s,?.!;:()/"'-]|$)`, 'i');
+          if (codeRegex.test(text)) {
+            matchedCourse = cm;
+            cleanQuestion = text.replace(codeRegex, '$1$2').trim();
+            break;
+          }
+        }
+      }
+
+      // 4. Nhận diện theo tên môn đầy đủ hoặc cụm từ khóa chính của môn
+      if (!matchedCourse) {
+        for (const cm of courseMembers) {
+          const names = [cm.name];
           const words = (cm.name || '').trim().split(/\s+/);
           if (words.length > 2) {
-            names.push(words.slice(1).join(' '));
+            names.push(words.slice(1).join(' ')); // ví dụ 'Hệ điều hành' từ 'Nguyên lí Hệ điều hành'
             names.push(words.slice(2).join(' '));
           }
           for (const n of names) {
-            if (!n) continue;
-            const nLow = n.toLowerCase();
-            if (nLow.length >= 4 && low.includes(nLow)) {
+            if (!n || n.length < 3) continue;
+            const nEsc = n.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const nameRegex = new RegExp(`(^|[\\s,?.!;:()/"'-])${nEsc}([\\s,?.!;:()/"'-]|$)`, 'i');
+            if (nameRegex.test(text) || low.includes(n.toLowerCase())) {
               matchedCourse = cm;
+              cleanQuestion = text.replace(nameRegex, '$1$2').trim();
               break;
             }
           }
           if (matchedCourse) break;
         }
       }
-      // 4. Nếu chỉ có đúng 1 môn học đang active và câu hỏi có nội dung học tập
-      if (!matchedCourse && courseMembers.length === 1 && cleanQuestion.length >= 6 && !low.includes('@')) {
+
+      // 5. Nếu không khớp môn nào cụ thể nhưng trước đó vừa trao đổi với một môn học (contextual continuation)
+      if (!matchedCourse && lastTutorCourseId) {
+        const lastCm = courseMembers.find((cm) => cm.id === lastTutorCourseId || cm.courseId === lastTutorCourseId);
+        if (lastCm && (cleanQuestion.includes('?') || cleanQuestion.length >= 5)) {
+          matchedCourse = lastCm;
+        }
+      }
+
+      // 6. Nếu chỉ có đúng 1 môn học đang active và câu hỏi có nội dung học tập
+      if (!matchedCourse && courseMembers.length === 1 && cleanQuestion.length >= 5 && !low.includes('@')) {
         matchedCourse = courseMembers[0];
       }
     }
 
     if (matchedCourse && ctx.onCourseQuestion) {
-      ctx.onCourseQuestion({ member: matchedCourse, question: cleanQuestion || text, quote });
+      lastTutorCourseId = matchedCourse.id;
+      ctx.onCourseQuestion({ member: matchedCourse, question: cleanQuestion.length >= 4 ? cleanQuestion : text, quote });
+      return;
+    }
+
+    // Nếu không khớp môn nào nhưng có nhiều môn học trong phòng, hướng dẫn nhắc tên môn
+    if (courseMembers.length > 1 && !matchedCourse && (cleanQuestion.includes('?') || cleanQuestion.length >= 8)) {
+      const courseList = courseMembers.map((cm) => cm.courseCode ? `@${cm.courseCode}` : `@${cm.name}`).join(', ');
+      system(`💡 Bạn có thể chỉ rõ môn học muốn hỏi (${courseList}), hoặc gõ mã môn (ví dụ OOP, Database) để trợ giảng giải đáp.`);
       return;
     }
 
