@@ -40,9 +40,9 @@ function createActor(event) {
       activity = null;
       card.dataset.animation = 'idle';
       const sess = sessions.get(w.id);
-      // Chỉ cho nhân vật nghỉ khi server báo session đã xong hoàn toàn
+      // Khi hoàn thành hoạt động, chuyển về thế đọc sách nghiên cứu tài liệu
       if (!sess || sess.status !== 'work') {
-        w.anim = 'sleep';
+        w.anim = 'read';
         w.hush();
       }
     },

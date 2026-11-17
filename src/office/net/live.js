@@ -11,6 +11,7 @@ import { DEPT_SIGNS } from '../world/pro/wing.js';
 import { PALETTE, addWorker, dn, dropSub, hash, leaving, leavingIds, sessions, spawnSub, subs, trimLeaving, workers } from '../people/workers.js';
 import { queueUi } from '../ui/activity.js';
 import { closeSession } from '../ui/session-drawer.js';
+import { verb } from '../ui/event-text.js';
 import { t as tr } from '../../i18n/index.js';
 
 export let TOKEN;
@@ -104,7 +105,7 @@ export function upsertSession(s, walkIn = true) {
       w.anim = 'type';
       if (s.last) w.say(s.last.type, s.last.label || verb(s.last));
     } else if (s.status === 'rest' && w.anim === 'type') {
-      w.anim = 'sleep';
+      w.anim = s.isCourse ? 'read' : 'sleep';
       w.hush();
     }
     const live = new Set((s.subs || []).map((x) => x.id));

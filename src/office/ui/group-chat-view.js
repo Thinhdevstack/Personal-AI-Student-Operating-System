@@ -25,7 +25,7 @@ import { denyCard, denyPeek } from './denied-card.js';
 import { cacheWords } from './cache-words.js';
 import { TOKEN } from '../net/live.js';
 import { pushOn, pushState, pushTest } from './notify.js';
-import { REACTIONS, byId, chat, chatPoll, chatSend, chatSendPhoto, onChat, people, react, recall, rsvp, setOpen, vote, who } from './group-chat.js';
+import { REACTIONS, byId, chat, chatPoll, chatSend, onChat, people, react, recall, rsvp, setOpen, vote, who } from './group-chat.js';
 import { coach, numberTasks } from '../../shared/prompt-coach.js';
 import { t as tr, lang, locale } from '../../i18n/index.js';
 
@@ -393,7 +393,10 @@ function send() {
   const v = input.value; input.value = ''; syncBar(); mentionEl.hidden = true; input.style.height = '';
   if (steerTo && v.trim()) { const to = steerTo; setSteer(null); steerSend(to, v.trim()); drawCoach(); return; }
   if (target && (v.trim() || attach.length)) { sendTo(v.trim() || tr('chat.to.photoOnly')); setReply(null); drawCoach(); return; }
-  if (v.trim()) chatSend(v, { replyTo: replyTo?.id });
+  const images = attach.slice();
+  attach = [];
+  drawAttach();
+  if (v.trim() || images.length) chatSend(v, { replyTo: replyTo?.id, images });
   setReply(null);
   // @ a conversation: give it this as work? (one tap opens the sheet with it filled in: its folder, photos, send)
   const tagged = v.trim() && [...sessions.values()].sort((a, b) => dn(b).length - dn(a).length).find((s) => v.includes(`@${dn(s)}`));
@@ -849,14 +852,31 @@ function build() {
   const replyText = el('span', 'zc-reply-q'); replyText.append(el('b'), el('span', 'zc-reply-t'));
   replyEl.append(icon('reply'), replyText, replyX);
   // a computer's toolbar over the input: stickers, a photo of the office, a file, a card, a poll, @, more
-  const photoBtn = (cls) => { const b = ib('image', tr('chat.sendPhoto'), () => (target ? pickPhotos() : chatSendPhoto()), `${cls} zc-photo-btn`); b.hidden = !state.isLocal; return b; };   // (to the group: a photo of the office as it is now, taken on the Mac; to Claude: one of yours)
+  const photoBtn = (cls) => ib('image', tr('chat.sendPhoto'), () => pickPhotos(), `${cls} zc-photo-btn`);
   const atBtn = () => { moreEl.hidden = true; input.focus(); input.setRangeText(input.value && !/\s$/.test(input.value) ? ' @' : '@', input.selectionStart, input.selectionEnd, 'end'); mentions(); };
   const toolbar = el('div', 'zc-toolbar zc-pc');
   toolbar.append(ib('smile', tr('chat.stickerTab'), () => openStickers('sticker')), photoBtn(''), ib('clip', ''), ib('card', ''), ib('chart', tr('chat.newPoll'), openMore), ib('at', tr('chat.mention'), atBtn),
     ib('clipboard', tr('chat.task.title'), () => openTaskSheet(root), 'zc-task-btn'), ib('format', ''), ib('more', tr('chat.more'), openMore));
   bar = el('form', 'zc-bar');
-  input = el('textarea', 'zc-in'); input.rows = 1; input.maxLength = 600;
+  input = el('textarea', 'zc-in'); input.rows = 1; input.maxLength = 2000;
   input.placeholder = tr(matchMedia('(max-width: 640px)').matches ? 'chat.placeholder' : 'chat.placeholderPc', { group: tr('chat.group') });
+  input.addEventListener('paste', async (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        const file = item.getAsFile();
+        if (file) {
+          e.preventDefault();
+          try {
+            const dataUrl = await shrink(file);
+            attach.push(dataUrl);
+            drawAttach();
+          } catch {}
+        }
+      }
+    }
+  });
   input.addEventListener('input', () => { syncBar(); mentions(); input.style.height = ''; input.style.height = `${Math.min(110, input.scrollHeight)}px`; coachLater(); if (keepChip) keepChip.hidden = !canKeep(); });
   input.addEventListener('keydown', (e) => { e.stopPropagation(); if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); send(); } if (e.key === 'Escape') { if (steerTo) setSteer(null); else if (replyTo) setReply(null); else toggle(false); } });
   // the phone's 🎤: speak into the input (the browser's speech recognition, in the office's language)

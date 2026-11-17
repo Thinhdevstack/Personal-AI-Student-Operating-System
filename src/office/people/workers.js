@@ -86,7 +86,7 @@ export function addWorker(s, walkIn) {
   } else {
     w.pos.set(home.x, home.z); w.spot = home; w.face = w.faceTarget = home.face; w.pose = home.sit ? 'sit' : 'stand'; w.station = 'desk';
     if (s.desk >= 0) deskKit[s.desk] = w;
-    if (s.status === 'rest') { w.anim = 'sleep'; w.hush(); }
+    if (s.status === 'rest') { w.anim = s.isCourse ? 'read' : 'sleep'; w.hush(); }
     else if (s.status === 'wait') { w.anim = 'hand'; w.say('wait', tr('people.needsApproval'), 'wait'); }
     else { w.anim = 'type'; if (s.last) w.say(s.last.type, s.last.label || verb(s.last)); }
   }
@@ -421,7 +421,7 @@ export function setup() {
         at: () => { this.waveUntil = state.sim + 1.3; return text; },
         done: () => {
           if (s.status !== 'rest' || this.want || s.bg?.length) return;   // work came in meanwhile: they are up for it
-          this.anim = 'sleep'; this.restAt = Infinity; this.say('idle', R('back'), 'rest'); this.pokeHushAt = state.sim + 2.6;
+          this.anim = s.isCourse ? 'read' : 'sleep'; this.restAt = Infinity; this.say('idle', R('back'), 'rest'); this.pokeHushAt = state.sim + 2.6;
         } });
       return true;
     }
@@ -450,6 +450,18 @@ export function setup() {
         if (this.mealBox) hideMeal(this);   // (lunch eaten at the desk: the box put away)
         const bg = sessions.get(this.id)?.bg;
         if (bg?.length) { this.anim = 'think'; this.say('bash', tr('people.bgWait', { desc: bg[0].desc })); return; }
+        const s = sessions.get(this.id);
+        if (s?.isCourse) {
+          const d = officeNow(), h = d.getHours();
+          if (h >= 23 || h < 6) {
+            this.anim = 'sleep';
+          } else {
+            const idleActs = ['read', 'read', 'think', 'idle'];
+            this.anim = idleActs[randInt(0, idleActs.length - 1)];
+          }
+          this.hush();
+          return;
+        }
         this.anim = 'sleep'; this.hush();
       };
       if (this.station === 'desk') nap(); else this.goTo(this.homeSpot(), nap);

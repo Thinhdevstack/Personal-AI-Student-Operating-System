@@ -74,8 +74,8 @@ export default {
     title: 'Hoạt động',
     live: 'trực tiếp',
     today: 'Hôm nay',
-    timeline: 'Dòng thời gian',
-    timelineSub: 'xem mỗi phiên làm gì, chờ bạn bao lâu',
+    timeline: 'Nhật ký học tập',
+    timelineSub: 'ma trận tiến độ 12 tháng & kế hoạch',
     wrapped: 'Tổng kết tuần',
     wrappedSub: 'thẻ ảnh 7 ngày qua, để khoe lên mạng',
     filter: 'Lọc hoạt động',
@@ -170,9 +170,9 @@ export default {
     emptyText: 'Tạo môn học trong phần Học tập, trợ giảng sẽ vào bàn học.',
   },
   timeline: {
-    title: 'Dòng thời gian',
-    intro: 'Mỗi hàng là một phiên, hàng thụt vào là trợ lý của nó. Bấm một đoạn để xem lại lúc đó.',
-    csv: 'Xuất CSV',
+    title: 'Nhật ký & Tiến độ học tập',
+    intro: 'Ma trận đóng góp 12 tháng và kế hoạch học tập hôm nay (100% Ngoại tuyến).',
+    csv: 'Ghi nhật ký',
   },
   wrapped: {
     title: 'Tuần của bạn với Claude',

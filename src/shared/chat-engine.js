@@ -197,15 +197,17 @@ export function createChatEngine(ctx) {
     const what = m.last?.type ? tr(`chat.verb.${VERB[m.last.type] || 'other'}`, { label: short(m.last.label || '', 40) }) : tr('chat.verb.other', { label: '' });
     return tr('chat.reply.statusWork', { what: what.trim(), task: short(m.task || '', 60) });
   }
-  /** You wrote: text (≤600), a sticker (index), a reply to a message (its id). */
-  function send({ text = '', sticker = null, replyTo = null } = {}) {
-    text = String(text || '').trim().slice(0, 600);
-    if (!text && sticker == null) return;
+  /** You wrote: text (≤2000), a sticker (index), a reply to a message (its id), images ([dataUrl]). */
+  function send({ text = '', sticker = null, replyTo = null, images = [] } = {}) {
+    text = String(text || '').trim().slice(0, 2000);
+    const hasImages = Array.isArray(images) && images.length > 0;
+    if (!text && sticker == null && !hasImages) return;
     const r = replyTo && byId(replyTo), reply = r && !r.recalled ? { id: r.id, name: r.name || tr('chat.you'), text: short(r.kind === 'text' ? r.text : r.kind === 'poll' ? r.poll.q : tr(r.kind === 'photo' ? 'chat.photo' : 'chat.sticker'), 90) } : null;
-    say('me', text, { now: true, sticker, reply });
+    const firstImg = hasImages ? images[0] : null;
+    say('me', text, { now: true, sticker, reply, photo: firstImg });
     const mine = st.msgs.at(-1);
-    if (!text) { const id = anyone(); if (id) say(id, '', { sticker: Math.floor(Math.random() * tr('chat.stickers', null, 'list').length), delay: rand(2000, 6000) }); return; }
-    const quote = mine ? { id: mine.id, name: tr('chat.boss'), text: short(text, 90) } : null;
+    if (!text && !hasImages) { const id = anyone(); if (id) say(id, '', { sticker: Math.floor(Math.random() * tr('chat.stickers', null, 'list').length), delay: rand(2000, 6000) }); return; }
+    const quote = mine ? { id: mine.id, name: tr('chat.boss'), text: short(text || (hasImages ? tr('chat.photo') : ''), 90) } : null;
     const low = text.toLowerCase();
 
     // Định tuyến câu hỏi cho môn học (Course Tutor) nếu có
@@ -274,20 +276,30 @@ export function createChatEngine(ctx) {
       // 5. Nếu không khớp môn nào cụ thể nhưng trước đó vừa trao đổi với một môn học (contextual continuation)
       if (!matchedCourse && lastTutorCourseId) {
         const lastCm = courseMembers.find((cm) => cm.id === lastTutorCourseId || cm.courseId === lastTutorCourseId);
-        if (lastCm && (cleanQuestion.includes('?') || cleanQuestion.length >= 5)) {
+        if (lastCm && (cleanQuestion.includes('?') || cleanQuestion.length >= 5 || hasImages)) {
           matchedCourse = lastCm;
         }
       }
 
-      // 6. Nếu chỉ có đúng 1 môn học đang active và câu hỏi có nội dung học tập
-      if (!matchedCourse && courseMembers.length === 1 && cleanQuestion.length >= 5 && !low.includes('@')) {
+      // 6. Nếu gửi ảnh hoặc câu hỏi học tập và chỉ có 1 môn học đang active
+      if (!matchedCourse && courseMembers.length === 1 && (cleanQuestion.length >= 5 || hasImages) && !low.includes('@')) {
         matchedCourse = courseMembers[0];
+      }
+
+      // 7. Nếu có gửi ảnh câu hỏi mà chưa rõ môn, ưu tiên trợ giảng gần nhất hoặc môn đầu tiên
+      if (!matchedCourse && hasImages) {
+        matchedCourse = (lastTutorCourseId && courseMembers.find((cm) => cm.id === lastTutorCourseId || cm.courseId === lastTutorCourseId)) || courseMembers[0];
       }
     }
 
     if (matchedCourse && ctx.onCourseQuestion) {
       lastTutorCourseId = matchedCourse.id;
-      ctx.onCourseQuestion({ member: matchedCourse, question: cleanQuestion.length >= 4 ? cleanQuestion : text, quote });
+      ctx.onCourseQuestion({
+        member: matchedCourse,
+        question: cleanQuestion.length >= 4 ? cleanQuestion : text,
+        quote,
+        images: hasImages ? images : [],
+      });
       return;
     }
 

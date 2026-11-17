@@ -52,6 +52,8 @@ import { createLiftService } from './lift-service.mjs';
 import { createStudentService } from './student/service.mjs';
 import { createStudentRoutes } from './student/routes.mjs';
 import { createStudentDemoSeed } from './student/demo-seed.mjs';
+import { recognizeImageDataUrl } from './documents/ocr.mjs';
+import { extractLinksContext } from './documents/link-reader.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const STUDENT_DEMO = process.env.OFFICE_STUDENT_DEMO === '1';
@@ -618,7 +620,7 @@ chat = createChatEngine({
   },
   emit: (op, x) => broadcast(op === 'typing' ? { k: 'chat', op, typing: x } : { k: 'chat', op, m: x, pinned: chat?.state.pinned ?? null }),
   act: (what) => broadcast({ k: 'chatact', what }),
-  onCourseQuestion: async ({ member, question, quote }) => {
+  onCourseQuestion: async ({ member, question, quote, images = [] }) => {
     if (!student) return;
     const courseId = member.courseId || member.id.replace(/^course:/, '');
     const sess = sessions.get(member.id);
@@ -634,6 +636,46 @@ chat = createChatEngine({
     chat.working(member.id, true);
 
     try {
+      // 1. Quét nội dung chữ từ ảnh câu hỏi (Windows OCR 100% offline) nếu có đính kèm ảnh
+      if (Array.isArray(images) && images.length > 0) {
+        if (sess) {
+          sess.last = { type: 'read', label: 'Đang quét chữ từ ảnh (OCR)...' };
+          broadcast({ k: 'sess', s: pub(sess) });
+        }
+        const ocrTexts = [];
+        for (const img of images) {
+          try {
+            const txt = await recognizeImageDataUrl(img);
+            if (txt && txt.trim()) ocrTexts.push(txt.trim());
+          } catch {}
+        }
+        if (ocrTexts.length > 0) {
+          const combinedOcr = ocrTexts.join('\n\n');
+          question = question
+            ? `${question}\n\n📷 [Nội dung trích xuất từ ảnh câu hỏi bằng Windows OCR]:\n${combinedOcr}`
+            : `📷 [Nội dung câu hỏi từ ảnh (Windows OCR)]:\n${combinedOcr}`;
+        }
+      }
+
+      // 2. Trích xuất tài liệu từ URL / Docs nếu câu hỏi có chứa đường link
+      if (question && /https?:\/\//i.test(question)) {
+        if (sess) {
+          sess.last = { type: 'web', label: 'Đang đọc link tài liệu...' };
+          broadcast({ k: 'sess', s: pub(sess) });
+        }
+        try {
+          const { contextText } = await extractLinksContext(question);
+          if (contextText) {
+            question += `\n\n${contextText}`;
+          }
+        } catch {}
+      }
+
+      if (sess) {
+        sess.last = { type: 'read', label: tr('student.tutorWorking') || 'Đọc tài liệu môn học' };
+        broadcast({ k: 'sess', s: pub(sess) });
+      }
+
       await student.sendChat({
         courseId,
         message: question,
@@ -2827,9 +2869,14 @@ const server = http.createServer((req, res) => {
   }
   if (url.pathname === '/api/chat' && req.method === 'POST') {   // the group chat: { op, … } (say and photo only from this computer)
     if (!authorized(req, url) || !sameOriginOf(req) || !String(req.headers['content-type'] || '').startsWith('application/json')) { json(res, 403, { ok: false }); return; }
-    readJson(req, 600_000).then((b) => {
+    readJson(req, 2_000_000).then((b) => {
       const mac = isLoopback(req), op = String(b?.op || ''), str = (x, n) => String(x ?? '').slice(0, n);
-      if (op === 'send') chat.send({ text: str(b.text, 600), sticker: Number.isInteger(b.sticker) ? b.sticker : null, replyTo: str(b.replyTo, 40) || null });
+      if (op === 'send') chat.send({
+        text: str(b.text, 2000),
+        sticker: Number.isInteger(b.sticker) ? b.sticker : null,
+        replyTo: str(b.replyTo, 40) || null,
+        images: Array.isArray(b.images) ? b.images.slice(0, 4) : (b.photo ? [b.photo] : []),
+      });
       else if (op === 'react') chat.react(str(b.id, 40), 'me', str(b.emoji, 8));
       else if (op === 'vote') chat.vote(str(b.id, 40), 'me', Number(b.i));
       else if (op === 'rsvp') chat.rsvp(str(b.id, 40), 'me', !!b.yes);

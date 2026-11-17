@@ -57,3 +57,34 @@ export async function recognizePdfImage(page) {
   const result = await recognizePdfPageWithMeta(page);
   return result.text;
 }
+
+export async function recognizeImageBuffer(buffer) {
+  if (process.platform !== 'win32') return '';
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'student-ocr-img-'));
+  try {
+    const filename = path.join(dir, 'input.png');
+    fs.writeFileSync(filename, buffer);
+    const { stdout } = await run('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], {
+      windowsHide: true, timeout: 30000, maxBuffer: 1024 * 1024,
+      env: { ...process.env, STUDENT_OCR_IMAGE: filename }, encoding: 'utf8',
+    });
+    const result = JSON.parse(stdout.replace(/^\uFEFF/, '').trim());
+    if (!Array.isArray(result.lines)) return '';
+    return ocrLinesToText(result.lines);
+  } catch {
+    return '';
+  } finally {
+    if (path.dirname(dir) === path.resolve(os.tmpdir()) && path.basename(dir).startsWith('student-ocr-img-')) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  }
+}
+
+export async function recognizeImageDataUrl(dataUrl) {
+  if (typeof dataUrl !== 'string') return '';
+  const match = dataUrl.match(/^data:image\/[a-zA-Z+]+;base64,(.+)$/);
+  if (!match) return '';
+  const buffer = Buffer.from(match[1], 'base64');
+  return recognizeImageBuffer(buffer);
+}
+

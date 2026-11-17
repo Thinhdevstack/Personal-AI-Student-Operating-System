@@ -74,7 +74,11 @@ export async function chatLoad() {
 }
 const post = (body) => STUDENT_LEARNING ? Promise.resolve(null) : fetch(`/api/chat${TOKEN ? `?k=${encodeURIComponent(TOKEN)}` : ''}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).then((r) => r.body?.cancel()).catch(() => null);   // (the answer is not needed, but unread it would stay in memory)
 // what you do: to the server (or the demo's engine)
-export function chatSend(text, opts = {}) { if (engine) engine.send({ text, sticker: opts.sticker ?? null, replyTo: opts.replyTo || null }); else post({ op: 'send', text, sticker: opts.sticker ?? null, replyTo: opts.replyTo || null }); }
+export function chatSend(text, opts = {}) {
+  const images = opts.images || [];
+  if (engine) engine.send({ text, sticker: opts.sticker ?? null, replyTo: opts.replyTo || null, images });
+  else post({ op: 'send', text, sticker: opts.sticker ?? null, replyTo: opts.replyTo || null, images });
+}
 export function react(m, emoji) { if (engine) engine.react(m.id, 'me', emoji); else post({ op: 'react', id: m.id, emoji }); }
 export function vote(m, i) { if (engine) engine.vote(m.id, 'me', i); else post({ op: 'vote', id: m.id, i }); }
 export function rsvp(m, yes) { if (engine) engine.rsvp(m.id, 'me', yes); else post({ op: 'rsvp', id: m.id, yes }); }
