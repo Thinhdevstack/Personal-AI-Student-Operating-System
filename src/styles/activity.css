@@ -49,3 +49,9 @@
 .iv-close:hover { background: rgba(255, 255, 255, .14); }
 .iv-close:focus-visible { outline: 2px solid var(--accent); }
 @media (prefers-reduced-motion: reduce) { .img-view { animation: none; } .fg-thumb { transition: none; } }
+
+/* Hide API cost in Student OS */
+.kpi--cost,
+.kpi[data-k="cost"] {
+  display: none !important;
+}

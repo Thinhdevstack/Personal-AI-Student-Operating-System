@@ -234,7 +234,9 @@ export function renderHud() {
   $('active-count').textContent = list.length ? tr('activity.sessions', { n: list.length }) + (subCount ? ` · ${tr('activity.subsRunning', { n: subCount })}` : '') : tr('activity.noSessions');
   $('feed-stats').replaceChildren(...KPIS.map(([k, ic]) => {
     const label = tr(`activity.kpi.${k}`);
-    const d = el('div', k === 'cost' ? 'kpi kpi--cost' : 'kpi'), i = el('span', 'kpi-ic'); i.append(icon(ic));
+    const d = el('div', k === 'cost' ? 'kpi kpi--cost' : 'kpi');
+    d.dataset.k = k;
+    const i = el('span', 'kpi-ic'); i.append(icon(ic));
     const b = el('b', null, k === 'cost' ? fmtUsd(list.reduce((a, s) => a + (s.usage?.cost || 0), 0)) : num(state.stats[k] || 0));
     if (k === 'cost') b.prepend(el('small', null, '≈'));   // (an estimate: the list price, not a bill)
     d.append(i, b, el('span', null, label)); d.title = k === 'cost' ? tr('activity.costTitle') : tr('activity.kpiToday', { label });

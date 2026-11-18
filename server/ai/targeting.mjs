@@ -43,13 +43,16 @@ export function resolveSourceTarget({ db, courseId, message, explicitTarget, lan
       if (matched.length === 1) {
         targetDoc = matched[0];
       } else if (matched.length > 1) {
-        return {
-          ambiguous: true,
-          matchedDocs: matched.map((d) => ({ id: d.id, name: d.originalFilename })),
-          explanation: lang === 'vi'
-            ? `Tìm thấy nhiều tài liệu phù hợp cho chương/bài ${chapterNum} (${matched.map((d) => d.originalFilename).join(', ')}). Vui lòng chọn tài liệu cụ thể.`
-            : `Multiple materials found for chapter ${chapterNum} (${matched.map((d) => d.originalFilename).join(', ')}). Please select a specific material.`,
-        };
+        if (targetPage) {
+          return {
+            ambiguous: true,
+            matchedDocs: matched.map((d) => ({ id: d.id, name: d.originalFilename })),
+            explanation: lang === 'vi'
+              ? `Tìm thấy nhiều tài liệu phù hợp cho chương/bài ${chapterNum} (${matched.map((d) => d.originalFilename).join(', ')}). Vui lòng chọn tài liệu cụ thể.`
+              : `Multiple materials found for chapter ${chapterNum} (${matched.map((d) => d.originalFilename).join(', ')}). Please select a specific material.`,
+          };
+        }
+        targetDoc = matched[0];
       }
     }
 
@@ -67,7 +70,7 @@ export function resolveSourceTarget({ db, courseId, message, explicitTarget, lan
       });
       if (titleMatched.length === 1) {
         targetDoc = titleMatched[0];
-      } else if (titleMatched.length > 1) {
+      } else if (titleMatched.length > 1 && targetPage) {
         return {
           ambiguous: true,
           matchedDocs: titleMatched.map((d) => ({ id: d.id, name: d.originalFilename })),

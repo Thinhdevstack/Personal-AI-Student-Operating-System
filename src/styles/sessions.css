@@ -43,6 +43,8 @@
 .av:has(.av-logo[data-agent="claude"]) { background: #F4EEE3; }
 .av:has(.av-logo[data-agent="gemini"]) { background: #FFFFFF; }
 .av:has(.av-logo[data-agent="codex"]) { background: #0F1013; }
+.av:has(.av-logo[data-agent="course"]) { background: #0A1E14; }
+.av-logo[data-agent="course"] { width: 18px; height: 18px; fill: #3DDC84; }
 .av:has(.av-logo) { box-shadow: inset 0 0 0 2.5px var(--c), inset 0 0 0 4px rgba(0, 0, 0, .25); }
 .av-st { position: absolute; right: -1px; bottom: -1px; width: 11px; height: 11px; border-radius: 50%; background: var(--faint); box-shadow: 0 0 0 2.5px var(--side); }
 .ri[data-status="work"] .av-st { background: var(--green); }

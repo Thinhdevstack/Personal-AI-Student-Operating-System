@@ -26,3 +26,10 @@
 .mp-bar b { display: block; height: 100%; width: 0; background: var(--green); border-radius: 999px; transition: width .5s; }
 .mac-pill[data-level="warn"] .mp-bar b { background: var(--amber); }
 .mac-pill[data-level="critical"] .mp-bar b { background: var(--red); }
+
+/* Hide legacy Claude Code plan limits and phone remote button */
+#btn-phone-top,
+#btn-plan,
+.plan-pill {
+  display: none !important;
+}
