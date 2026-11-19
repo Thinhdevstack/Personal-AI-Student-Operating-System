@@ -1,6 +1,7 @@
 // The study dashboard: 12-month GitHub-style contribution heatmap, study streak, and daily planner.
 // Powered by local SQLite backend (/api/student/study-logs and /api/student/study-tasks).
 import { $, el } from '../core/env.js';
+import { state } from '../core/state.js';
 import { toast } from '../ui/activity.js';
 import { closePlace } from '../interact/place-cards.js';
 import { renderBell } from '../ui/topbar.js';
@@ -33,6 +34,7 @@ const studyState = {
 };
 
 export function closeTimeline() {
+  state.paused3d = false;
   const tl = $('tl');
   if (tl) tl.hidden = true;
   const modal = $('tl-modal');
@@ -40,6 +42,7 @@ export function closeTimeline() {
 }
 
 export function openTimeline() {
+  state.paused3d = true;
   const tl = $('tl');
   if (!tl) return;
   tl.hidden = false;

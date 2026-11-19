@@ -456,7 +456,25 @@ setInterval(() => { if (root && !root.hidden) drawToCache(); }, 20_000);
 /* ---------- quick commands over the input (to a conversation or a project): a tap fills the input, ✎ changes them ----------
    Shared by the Mac and the phones (data/quick.json); the office's own until you change them. */
 let quick = null;
-const QUICK0 = () => ['test', 'commit', 'deploy', 'today', 'errors'].map((k) => ({ label: tr(`chat.quick.${k}`), prompt: tr(`chat.quick.${k}Prompt`) }));
+const STUDY_QUICK = [
+  {
+    label: 'Khảo bài',
+    prompt: 'Khảo bài: Hãy đặt 1 câu hỏi trọng tâm từ tài liệu môn học để tôi tự trả lời. Chưa đưa ra đáp án, hãy chờ tôi trả lời rồi chấm điểm trên thang điểm 10, phân tích điểm đúng/thiếu và trích dẫn trang nguồn.',
+  },
+  {
+    label: 'Tạo trắc nghiệm',
+    prompt: 'Tạo trắc nghiệm: Hãy tạo 3-5 câu hỏi trắc nghiệm A, B, C, D từ tài liệu môn học kèm đáp án đúng và giải thích chi tiết trích dẫn từ tài liệu.',
+  },
+  {
+    label: 'Tóm tắt cốt lõi',
+    prompt: 'Tóm tắt cốt lõi: Hãy tóm tắt các định nghĩa, công thức, bảng so sánh và các điểm mấu chốt hay ra thi từ tài liệu môn học dưới dạng phao kiến thức dễ nhớ.',
+  },
+  {
+    label: 'Tạo Flashcards',
+    prompt: 'Tạo Flashcards: Hãy tạo 5-8 thẻ ghi nhớ từ tài liệu môn học theo định dạng rõ ràng: Mặt trước là Thuật ngữ / Câu hỏi ngắn, Mặt sau là Định nghĩa cốt lõi và ví dụ ngắn.',
+  },
+];
+const QUICK0 = () => STUDY_QUICK;
 async function loadQuick() { const r = await fetch(`/api/quick${tq()}`).then((x) => x.json()).catch(() => null); quick = r?.list?.length ? r.list : QUICK0(); drawQuick(); }
 let keepChip = null;   // "⭐ Lưu câu này": shown while what you are writing isn't one of them yet
 const canKeep = () => !!quick && input.value.trim().length >= 6 && !quick.some((q) => q.prompt === input.value.trim());

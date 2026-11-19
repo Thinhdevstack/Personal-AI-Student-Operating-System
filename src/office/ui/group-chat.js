@@ -85,7 +85,7 @@ export function rsvp(m, yes) { if (engine) engine.rsvp(m.id, 'me', yes); else po
 export function recall(m) { if (engine) engine.recall(m.id); else post({ op: 'recall', id: m.id }); }
 export function chatPoll(q, options) { if (engine) engine.poll('me', q, options); else post({ op: 'poll', q, opts: options }); }
 export function chatSendPhoto() { const data = chatPhoto(null); if (!data) return; if (engine) engine.photo(data); else post({ op: 'photo', data }); }
-export function setOpen(on) { chat.open = on; if (on && chat.unread) { chat.unread = 0; emit('all'); } }
+export function setOpen(on) { chat.open = on; state.paused3d = on; if (on && chat.unread) { chat.unread = 0; emit('all'); } }
 
 /** Someone in the office says something (the office's life, from the module where it happens; on the Mac only). */
 export function chatSay(from, text, opts = {}) {

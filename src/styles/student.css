@@ -831,6 +831,41 @@
   border-top: 1px solid var(--student-border-subtle);
 }
 
+.student-study-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+  max-width: 860px;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+.student-study-action-btn {
+  background: var(--student-card);
+  border: 1px solid var(--student-border);
+  color: var(--student-text);
+  padding: 5px 12px;
+  border-radius: 6px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.student-study-action-btn:hover:not(:disabled) {
+  background: var(--student-accent-soft);
+  border-color: var(--student-accent);
+  color: var(--student-accent);
+}
+
+.student-study-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .student-chat-pinned-input {
   padding: 14px 24px;
   border-top: 1px solid var(--student-border);

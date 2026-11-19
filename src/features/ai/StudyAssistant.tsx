@@ -544,6 +544,56 @@ export default function StudyAssistant({ lang, courses }: { lang: string; course
               }
             }}
           >
+            <div className="student-study-actions" role="group" aria-label="Chế độ học tập">
+              <button
+                type="button"
+                className="student-study-action-btn"
+                disabled={busy || !!pending || !!attempt}
+                onClick={() => {
+                  setMessage(vi
+                    ? 'Khảo bài: Hãy đặt 1 câu hỏi trọng tâm từ tài liệu môn học để tôi tự trả lời. Chưa đưa ra đáp án, hãy chờ tôi trả lời rồi chấm điểm trên thang điểm 10, phân tích điểm đúng/thiếu và trích dẫn trang nguồn.'
+                    : 'Socratic Quiz: Ask me 1 core question from course materials for me to answer. Do not give the answer yet; wait for my answer then evaluate on a 10-point scale.');
+                }}
+              >
+                {vi ? 'Khảo bài' : 'Active Recall'}
+              </button>
+              <button
+                type="button"
+                className="student-study-action-btn"
+                disabled={busy || !!pending || !!attempt}
+                onClick={() => {
+                  setMessage(vi
+                    ? 'Tạo trắc nghiệm: Hãy tạo 3-5 câu hỏi trắc nghiệm A, B, C, D từ tài liệu môn học kèm đáp án đúng và giải thích chi tiết trích dẫn từ tài liệu.'
+                    : 'Generate Quiz: Create 3-5 multiple-choice questions A, B, C, D from course materials with correct answers and explanations.');
+                }}
+              >
+                {vi ? 'Tạo trắc nghiệm' : 'Quiz Generator'}
+              </button>
+              <button
+                type="button"
+                className="student-study-action-btn"
+                disabled={busy || !!pending || !!attempt}
+                onClick={() => {
+                  setMessage(vi
+                    ? 'Tóm tắt cốt lõi: Hãy tóm tắt các định nghĩa, công thức, bảng so sánh và các điểm mấu chốt hay ra thi từ tài liệu môn học dưới dạng phao kiến thức dễ nhớ.'
+                    : 'Core Cheatsheet: Summarize essential definitions, formulas, comparisons, and exam tips from course materials.');
+                }}
+              >
+                {vi ? 'Tóm tắt cốt lõi' : 'Cheatsheet'}
+              </button>
+              <button
+                type="button"
+                className="student-study-action-btn"
+                disabled={busy || !!pending || !!attempt}
+                onClick={() => {
+                  setMessage(vi
+                    ? 'Tạo Flashcards: Hãy tạo 5-8 thẻ ghi nhớ từ tài liệu môn học theo định dạng rõ ràng: Mặt trước là Thuật ngữ / Câu hỏi ngắn, Mặt sau là Định nghĩa cốt lõi và ví dụ ngắn.'
+                    : 'Create Flashcards: Generate 5-8 flashcards from course materials: Front = Term/Question, Back = Definition/Explanation.');
+                }}
+              >
+                {vi ? 'Tạo Flashcards' : 'Flashcards'}
+              </button>
+            </div>
             <div className="student-chat-input-wrapper">
               <input
                 type="text"

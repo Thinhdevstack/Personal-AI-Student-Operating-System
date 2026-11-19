@@ -418,6 +418,56 @@ export default function CourseChat({
           ...(history.conversationId && { conversationId: history.conversationId }),
         });
       }}>
+        <div className="student-study-actions" role="group" aria-label="Chế độ học tập">
+          <button
+            type="button"
+            className="student-study-action-btn"
+            disabled={working || pending}
+            onClick={() => {
+              setMessage(lang === 'vi'
+                ? 'Khảo bài: Hãy đặt 1 câu hỏi trọng tâm từ tài liệu môn học để tôi tự trả lời. Chưa đưa ra đáp án, hãy chờ tôi trả lời rồi chấm điểm trên thang điểm 10, phân tích điểm đúng/thiếu và trích dẫn trang nguồn.'
+                : 'Socratic Quiz: Ask me 1 core question from course materials for me to answer. Do not give the answer yet; wait for my answer then evaluate on a 10-point scale.');
+            }}
+          >
+            {lang === 'vi' ? 'Khảo bài' : 'Active Recall'}
+          </button>
+          <button
+            type="button"
+            className="student-study-action-btn"
+            disabled={working || pending}
+            onClick={() => {
+              setMessage(lang === 'vi'
+                ? 'Tạo trắc nghiệm: Hãy tạo 3-5 câu hỏi trắc nghiệm A, B, C, D từ tài liệu môn học kèm đáp án đúng và giải thích chi tiết trích dẫn từ tài liệu.'
+                : 'Generate Quiz: Create 3-5 multiple-choice questions A, B, C, D from course materials with correct answers and explanations.');
+            }}
+          >
+            {lang === 'vi' ? 'Tạo trắc nghiệm' : 'Quiz Generator'}
+          </button>
+          <button
+            type="button"
+            className="student-study-action-btn"
+            disabled={working || pending}
+            onClick={() => {
+              setMessage(lang === 'vi'
+                ? 'Tóm tắt cốt lõi: Hãy tóm tắt các định nghĩa, công thức, bảng so sánh và các điểm mấu chốt hay ra thi từ tài liệu môn học dưới dạng phao kiến thức dễ nhớ.'
+                : 'Core Cheatsheet: Summarize essential definitions, formulas, comparisons, and exam tips from course materials.');
+            }}
+          >
+            {lang === 'vi' ? 'Tóm tắt cốt lõi' : 'Cheatsheet'}
+          </button>
+          <button
+            type="button"
+            className="student-study-action-btn"
+            disabled={working || pending}
+            onClick={() => {
+              setMessage(lang === 'vi'
+                ? 'Tạo Flashcards: Hãy tạo 5-8 thẻ ghi nhớ từ tài liệu môn học theo định dạng rõ ràng: Mặt trước là Thuật ngữ / Câu hỏi ngắn, Mặt sau là Định nghĩa cốt lõi và ví dụ ngắn.'
+                : 'Create Flashcards: Generate 5-8 flashcards from course materials: Front = Term/Question, Back = Definition/Explanation.');
+            }}
+          >
+            {lang === 'vi' ? 'Tạo Flashcards' : 'Flashcards'}
+          </button>
+        </div>
         <label htmlFor={`chat-question-${courseId}`}>{t('tutor.question')}</label>
         <textarea id={`chat-question-${courseId}`} rows={3} maxLength={4000} placeholder={t('tutor.placeholder')} value={message} onChange={(event) => setMessage(event.target.value)} disabled={working || pending || !!unresolved} />
         <div><small>{message.length}/4000 · {t('tutor.enterHint')}</small><button className="student-primary" type="submit" disabled={working || pending || !message.trim() || (mode === 'materials' && !hasReadyMaterials) || !!unresolved || !ready}>{working || pending ? t('tutor.responding') : t('tutor.send')}</button></div>
