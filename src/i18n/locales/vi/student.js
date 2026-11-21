@@ -17,6 +17,7 @@ export default {
     cloudVerify: 'Kiểm tra kết nối',
     cloudAuthRequired: 'Cần đăng nhập: mở terminal và chạy "ollama signin"',
     cloudRateLimit: 'Hết hạn mức hoặc cần nạp credits tại ollama.com/plans',
+    tutorWorking: 'Đang tìm kiếm',
     targetDocumentHint: 'Mặc định tìm toàn bộ tài liệu. Chọn tài liệu cụ thể hoặc nhắc đến "chương X trang Y" để hỏi đúng vị trí.',
     mode: 'Cách trả lời', materials: 'Theo tài liệu', expanded: 'Tài liệu + mở rộng',
     materialsHint: 'Bám sát các đoạn PDF đã truy xuất; thiếu căn cứ sẽ nói rõ.',

@@ -13,7 +13,7 @@ import StudentDemoPanel from './StudentDemoPanel';
 import StudyLogWorkspace from '@/features/study/StudyLogWorkspace';
 import StudyTaskWorkspace from '@/features/study/StudyTaskWorkspace';
 
-type Tab = 'overview' | 'materials' | 'chat' | 'memory' | 'progress';
+type Tab = 'overview' | 'materials' | 'chat';
 type Editor = { kind: 'semester' | 'course'; action: 'create' | 'rename' | 'archive' | 'delete'; id?: string; name?: string };
 const MAX_PDF_BYTES = 20 * 1024 * 1024;
 
@@ -82,7 +82,7 @@ export default function StudentWorkspace({ lang, studentDemo = false, studentLoc
       const selected = result.courses.find((c) => c.id === params.get('course'));
       setSemesterId(selected?.semesterId || result.semesters.find((s) => s.isActive)?.id || result.semesters.find((s) => s.status === 'active')?.id || '');
       if (selected) {
-        setCourseId(selected.id); setView('academic'); setTab(params.get('tab') === 'chat' ? 'chat' : params.get('tab') === 'memory' ? 'memory' : 'materials');
+        setCourseId(selected.id); setView('academic'); setTab(params.get('tab') === 'chat' ? 'chat' : 'materials');
         setShowArchived(selected.status === 'archived');
       }
       if (params.get('view') === 'memory') setView('memory');
@@ -333,9 +333,6 @@ export default function StudentWorkspace({ lang, studentDemo = false, studentLoc
         <button aria-current={view === 'academic' ? 'page' : undefined} onClick={() => { chooseView('academic'); setSidebarOpen(false); }}>
           <span>{t('academic')}</span>
         </button>
-        <button aria-current={view === 'memory' ? 'page' : undefined} onClick={() => { chooseView('memory'); setSidebarOpen(false); }}>
-          <span>{t('memory.global')}</span>
-        </button>
         <a href={officeHref}>{t('projects')}</a>
       </nav>
 
@@ -515,7 +512,7 @@ export default function StudentWorkspace({ lang, studentDemo = false, studentLoc
         </> : <>
           <button className="student-breadcrumb" onClick={() => chooseSemester(semester.id)}>← {semester.name}</button>
           {actions('course', course)}
-          <div className="student-tabs" role="group" aria-label={course.name}>{(['overview', 'materials', 'chat', 'memory', 'progress'] as Tab[]).map((item) => <button key={item} aria-pressed={tab === item} onClick={() => chooseTab(item)}>{t(item === 'memory' ? 'memory.tab' : item)}</button>)}</div>
+          <div className="student-tabs" role="group" aria-label={course.name}>{(['overview', 'materials', 'chat'] as Tab[]).map((item) => <button key={item} aria-pressed={tab === item} onClick={() => chooseTab(item)}>{t(item)}</button>)}</div>
           <section className="student-panel">
             {course.status === 'archived' && <p className="student-archive-note">{t('archivedHint')}</p>}
             {tab === 'overview' && <><h2>{course.name}</h2><p>{course.description || t('selectCourse')}</p><p>{t('semester')}: {semester.name} · {semester.academicYear}</p><p>{t(`status.${course.status}`)}</p><button onClick={() => setTab('materials')}>{t('materials')} →</button></>}
@@ -576,10 +573,6 @@ export default function StudentWorkspace({ lang, studentDemo = false, studentLoc
               </div>
             </>}
             {tab === 'chat' && <CourseChat key={course.id} courseId={course.id} lang={lang} hasReadyMaterials={!!courseMaterials?.some((item) => item.status === 'ready')} materials={courseMaterials || []} onMemoryChange={refreshSnapshot} />}
-            {tab === 'memory' && <MemoryWorkspace key={course.id} lang={lang} target={{ scope: 'course', courseId: course.id }} onChange={refreshSnapshot} />}
-            {tab === 'progress' && (
-              <StudyLogWorkspace key={course.id} lang={lang} courses={data.courses} initialCourseId={course.id} />
-            )}
           </section>
         </>}
       </>}

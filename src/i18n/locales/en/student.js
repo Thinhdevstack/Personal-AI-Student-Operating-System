@@ -17,6 +17,7 @@ export default {
     cloudVerify: 'Verify connection',
     cloudAuthRequired: 'Sign-in required: run "ollama signin" in terminal',
     cloudRateLimit: 'Usage limit reached or credits needed at ollama.com/plans',
+    tutorWorking: 'Searching',
     targetDocumentHint: 'Searches all materials by default. Select a specific document or mention "chapter X page Y" to target a location.',
     mode: 'Answer mode', materials: 'Materials only', expanded: 'Materials + expanded knowledge',
     materialsHint: 'Use retrieved PDF excerpts; say when evidence is missing.',

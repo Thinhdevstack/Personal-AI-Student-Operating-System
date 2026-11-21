@@ -630,7 +630,7 @@ chat = createChatEngine({
       sess.taskStart = Date.now();
       sess.lastEventAt = Date.now();
       sess.lastPrompt = question;
-      sess.last = { type: 'read', label: tr('student.tutorWorking') || 'Đọc tài liệu môn học' };
+      sess.last = { type: 'read', label: 'Đang tìm kiếm' };
       broadcast({ k: 'sess', s: pub(sess) });
     }
     chat.working(member.id, true);
@@ -672,7 +672,7 @@ chat = createChatEngine({
       }
 
       if (sess) {
-        sess.last = { type: 'read', label: tr('student.tutorWorking') || 'Đọc tài liệu môn học' };
+        sess.last = { type: 'read', label: 'Đang tìm kiếm' };
         broadcast({ k: 'sess', s: pub(sess) });
       }
 

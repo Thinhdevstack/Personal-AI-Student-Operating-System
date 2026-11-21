@@ -831,6 +831,89 @@
   border-top: 1px solid var(--student-border-subtle);
 }
 
+/* Modern Course Chat Topbar */
+.student-chat-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  background: var(--student-card);
+  border: 1px solid var(--student-border);
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+.student-chat-topbar-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.student-chat-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  background: var(--student-accent-soft);
+  color: var(--student-accent);
+  border: 1px solid var(--student-accent-border);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.student-chat-select {
+  background: var(--student-surface);
+  border: 1px solid var(--student-border);
+  color: var(--student-text);
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 12px;
+  cursor: pointer;
+  outline: none;
+}
+
+.student-chat-select:focus {
+  border-color: var(--student-accent);
+}
+
+.student-chat-pending-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  background: var(--student-card);
+  border: 1px solid var(--student-border);
+  border-radius: 8px;
+  font-size: 13px;
+  color: var(--student-text-muted);
+  margin-top: 8px;
+}
+
+.student-chat-dots {
+  display: inline-flex;
+  gap: 4px;
+  align-items: center;
+}
+
+.student-chat-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--student-accent);
+  display: inline-block;
+  animation: student-dot-bounce 1.4s infinite ease-in-out both;
+}
+
+.student-chat-dots i:nth-child(1) { animation-delay: -0.32s; }
+.student-chat-dots i:nth-child(2) { animation-delay: -0.16s; }
+
+@keyframes student-dot-bounce {
+  0%, 80%, 100% { transform: scale(0); opacity: 0.3; }
+  40% { transform: scale(1); opacity: 1; }
+}
+
 .student-study-actions {
   display: flex;
   align-items: center;
